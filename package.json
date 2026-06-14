@@ -1,0 +1,37 @@
+{
+  "name": "complexity-analyzer-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for time and space complexity analysis of TypeScript/JavaScript code",
+  "type": "module",
+  "engines": { "node": ">=22.0.0", "pnpm": ">=9.0.0" },
+  "packageManager": "pnpm@9.15.4",
+  "main": "./dist/mcp/index.js",
+  "bin": { "complexity-analyzer": "./dist/cli/index.js" },
+  "exports": {
+    ".": "./dist/mcp/index.js",
+    "./engine": "./dist/engine/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "check": "biome check .",
+    "check:fix": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "ci": "pnpm check && pnpm typecheck && pnpm test"
+  },
+  "dependencies": {
+    "ts-morph": "^24.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

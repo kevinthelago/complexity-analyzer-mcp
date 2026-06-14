@@ -1,0 +1,13 @@
+{
+  "name": "Single loop — O(n) time, O(1) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function sum(arr: number[]): number {\n  let total = 0;\n  for (const x of arr) {\n    total += x;\n  }\n  return total;\n}\n",
+  "units": [
+    {
+      "name": "sum",
+      "time": "O(n)",
+      "space": "O(1)"
+    }
+  ]
+}

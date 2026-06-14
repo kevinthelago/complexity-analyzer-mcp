@@ -1,0 +1,13 @@
+{
+  "name": "Array.includes inside loop — O(n²) builtin-driven",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function hasDuplicate(arr: number[]): boolean {\n  for (let i = 0; i < arr.length; i++) {\n    const rest = arr.slice(i + 1);\n    if (rest.includes(arr[i]!)) return true;\n  }\n  return false;\n}\n",
+  "units": [
+    {
+      "name": "hasDuplicate",
+      "time": "O(n^2)",
+      "space": "O(n)"
+    }
+  ]
+}

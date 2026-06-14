@@ -1,0 +1,14 @@
+{
+  "name": "Constant time and space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function getFirst(arr: number[]): number | undefined {\n  return arr[0];\n}\n",
+  "units": [
+    {
+      "name": "getFirst",
+      "time": "O(1)",
+      "space": "O(1)",
+      "hotspotCount": 0
+    }
+  ]
+}

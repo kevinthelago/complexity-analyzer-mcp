@@ -1,0 +1,13 @@
+{
+  "name": "Linear recursion — O(n) time, O(n) space (call stack)",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function factorial(n: number): number {\n  if (n <= 1) return 1;\n  return n * factorial(n - 1);\n}\n",
+  "units": [
+    {
+      "name": "factorial",
+      "time": "O(n)",
+      "space": "O(n)"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Two-sum brute force — O(n²) time, O(1) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function twoSumBrute(nums: number[], target: number): [number, number] | null {\n  for (let i = 0; i < nums.length; i++) {\n    for (let j = i + 1; j < nums.length; j++) {\n      if ((nums[i] ?? 0) + (nums[j] ?? 0) === target) return [i, j];\n    }\n  }\n  return null;\n}\n",
+  "units": [
+    {
+      "name": "twoSumBrute",
+      "time": "O(n^2)",
+      "space": "O(1)"
+    }
+  ]
+}

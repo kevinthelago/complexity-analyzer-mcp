@@ -1,0 +1,13 @@
+{
+  "name": "Binary search (recursive) — O(log n) time, O(log n) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function binarySearch(arr: number[], target: number, lo = 0, hi = arr.length - 1): number {\n  if (lo > hi) return -1;\n  const mid = Math.floor((lo + hi) / 2);\n  if (arr[mid] === target) return mid;\n  if ((arr[mid] ?? 0) < target) return binarySearch(arr, target, mid + 1, hi);\n  return binarySearch(arr, target, lo, mid - 1);\n}\n",
+  "units": [
+    {
+      "name": "binarySearch",
+      "time": "O(log n)",
+      "space": "O(log n)"
+    }
+  ]
+}

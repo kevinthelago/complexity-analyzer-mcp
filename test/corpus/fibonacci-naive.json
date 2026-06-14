@@ -1,0 +1,13 @@
+{
+  "name": "Naive Fibonacci — exponential O(2^n) time, O(n) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function fib(n: number): number {\n  if (n <= 1) return n;\n  return fib(n - 1) + fib(n - 2);\n}\n",
+  "units": [
+    {
+      "name": "fib",
+      "time": "O(2^n)",
+      "space": "O(n)"
+    }
+  ]
+}

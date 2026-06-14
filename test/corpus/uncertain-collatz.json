@@ -1,0 +1,13 @@
+{
+  "name": "Collatz sequence — uncertain time complexity",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function collatzSteps(n: number): number {\n  let steps = 0;\n  while (n !== 1) {\n    if (n % 2 === 0) {\n      n = n / 2;\n    } else {\n      n = 3 * n + 1;\n    }\n    steps++;\n  }\n  return steps;\n}\n",
+  "units": [
+    {
+      "name": "collatzSteps",
+      "time": "uncertain",
+      "space": "O(1)"
+    }
+  ]
+}

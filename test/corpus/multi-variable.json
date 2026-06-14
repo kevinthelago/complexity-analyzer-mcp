@@ -1,0 +1,13 @@
+{
+  "name": "Multi-variable nested loops — O(n*m) time, O(1) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function cartesianProduct(a: number[], b: number[]): number[][] {\n  const result: number[][] = [];\n  for (const x of a) {\n    for (const y of b) {\n      result.push([x, y]);\n    }\n  }\n  return result;\n}\n",
+  "units": [
+    {
+      "name": "cartesianProduct",
+      "time": "O(n*m)",
+      "space": "O(n*m)"
+    }
+  ]
+}

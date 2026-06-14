@@ -1,0 +1,13 @@
+{
+  "name": "Sort inside loop — O(n² log n) builtin-driven",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function sortEachPrefix(arr: number[]): number[][] {\n  const result: number[][] = [];\n  for (let i = 1; i <= arr.length; i++) {\n    result.push(arr.slice(0, i).sort((a, b) => a - b));\n  }\n  return result;\n}\n",
+  "units": [
+    {
+      "name": "sortEachPrefix",
+      "time": "O(n^2)",
+      "space": "O(n^2)"
+    }
+  ]
+}

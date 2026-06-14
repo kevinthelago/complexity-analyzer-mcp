@@ -1,0 +1,18 @@
+{
+  "name": "Merge sort — O(n log n) divide-and-conquer, O(n) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function mergeSort(arr: number[]): number[] {\n  if (arr.length <= 1) return arr;\n  const mid = Math.floor(arr.length / 2);\n  const left = mergeSort(arr.slice(0, mid));\n  const right = mergeSort(arr.slice(mid));\n  return merge(left, right);\n}\n\nfunction merge(a: number[], b: number[]): number[] {\n  const result: number[] = [];\n  let i = 0, j = 0;\n  while (i < a.length && j < b.length) {\n    if ((a[i] ?? 0) <= (b[j] ?? 0)) result.push(a[i++]!);\n    else result.push(b[j++]!);\n  }\n  return result.concat(a.slice(i)).concat(b.slice(j));\n}\n",
+  "units": [
+    {
+      "name": "mergeSort",
+      "time": "O(n log n)",
+      "space": "O(n)"
+    },
+    {
+      "name": "merge",
+      "time": "O(n)",
+      "space": "O(n)"
+    }
+  ]
+}

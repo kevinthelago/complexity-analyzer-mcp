@@ -1,0 +1,13 @@
+{
+  "name": "Array map (new collection) — O(n) time, O(n) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function doubleAll(arr: number[]): number[] {\n  const result: number[] = [];\n  for (const x of arr) {\n    result.push(x * 2);\n  }\n  return result;\n}\n",
+  "units": [
+    {
+      "name": "doubleAll",
+      "time": "O(n)",
+      "space": "O(n)"
+    }
+  ]
+}

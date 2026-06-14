@@ -1,0 +1,13 @@
+{
+  "name": "Nested loops — O(n²) time, O(1) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function pairs(arr: number[]): number {\n  let count = 0;\n  for (let i = 0; i < arr.length; i++) {\n    for (let j = i + 1; j < arr.length; j++) {\n      count++;\n    }\n  }\n  return count;\n}\n",
+  "units": [
+    {
+      "name": "pairs",
+      "time": "O(n^2)",
+      "space": "O(1)"
+    }
+  ]
+}

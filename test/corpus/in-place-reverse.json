@@ -1,0 +1,13 @@
+{
+  "name": "In-place reverse — O(n) time, O(1) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function reverseInPlace(arr: number[]): void {\n  let lo = 0, hi = arr.length - 1;\n  while (lo < hi) {\n    const tmp = arr[lo]!;\n    arr[lo] = arr[hi]!;\n    arr[hi] = tmp;\n    lo++;\n    hi--;\n  }\n}\n",
+  "units": [
+    {
+      "name": "reverseInPlace",
+      "time": "O(n)",
+      "space": "O(1)"
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Memoized Fibonacci — O(n) time, O(n) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function fibMemo(n: number, memo: Map<number, number> = new Map()): number {\n  if (n <= 1) return n;\n  if (memo.has(n)) return memo.get(n)!;\n  const result = fibMemo(n - 1, memo) + fibMemo(n - 2, memo);\n  memo.set(n, result);\n  return result;\n}\n",
+  "units": [
+    {
+      "name": "fibMemo",
+      "time": "O(n)",
+      "space": "O(n)"
+    }
+  ]
+}

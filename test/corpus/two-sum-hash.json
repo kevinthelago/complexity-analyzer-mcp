@@ -1,0 +1,13 @@
+{
+  "name": "Two-sum with hash map — O(n) time, O(n) space",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function twoSum(nums: number[], target: number): [number, number] | null {\n  const seen = new Map<number, number>();\n  for (let i = 0; i < nums.length; i++) {\n    const complement = target - (nums[i] ?? 0);\n    if (seen.has(complement)) return [seen.get(complement)!, i];\n    seen.set(nums[i]!, i);\n  }\n  return null;\n}\n",
+  "units": [
+    {
+      "name": "twoSum",
+      "time": "O(n)",
+      "space": "O(n)"
+    }
+  ]
+}

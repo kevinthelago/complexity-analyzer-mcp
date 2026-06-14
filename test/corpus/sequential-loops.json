@@ -1,0 +1,13 @@
+{
+  "name": "Sequential loops — dominant term O(n)",
+  "kbVersion": "1.0.0",
+  "lang": "typescript",
+  "snippet": "function sumAndMax(arr: number[]): [number, number] {\n  let total = 0;\n  for (const x of arr) total += x;\n  let max = arr[0] ?? 0;\n  for (const x of arr) if (x > max) max = x;\n  return [total, max];\n}\n",
+  "units": [
+    {
+      "name": "sumAndMax",
+      "time": "O(n)",
+      "space": "O(1)"
+    }
+  ]
+}

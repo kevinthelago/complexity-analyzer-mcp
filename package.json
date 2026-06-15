@@ -15,9 +15,7 @@
     ".": "./dist/mcp/index.js",
     "./engine": "./dist/engine/index.js"
   },
-  "files": [
-    "dist"
-  ],
+  "files": ["dist"],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",

@@ -154,7 +154,7 @@ describe("deepAnalyzeUnit — ok path", () => {
   });
 
   it("strips markdown code fences the model may include", async () => {
-    const client = mockClient("```json\n" + okResponse() + "\n```");
+    const client = mockClient(`\`\`\`json\n${okResponse()}\n\`\`\``);
     const input = makeInput("function add(a: number, b: number) { return a + b; }");
     const result = await deepAnalyzeUnit(input, client);
     expect(result.llmStatus).toBe("ok");

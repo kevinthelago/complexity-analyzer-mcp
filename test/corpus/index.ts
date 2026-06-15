@@ -39,7 +39,7 @@ export const CORPUS: CorpusEntry[] = [
     id: "constant-time-arithmetic",
     description: "Pure arithmetic returns O(1) with high confidence",
     kbVersion: KB_VERSION_PINNED,
-    snippet: `function add(a: number, b: number): number { return a + b; }`,
+    snippet: "function add(a: number, b: number): number { return a + b; }",
     expected: {
       timeComplexity: "O(1)",
       spaceComplexity: "O(1)",
@@ -52,7 +52,7 @@ export const CORPUS: CorpusEntry[] = [
     id: "constant-time-property-access",
     description: "Array index access and length check are O(1)",
     kbVersion: KB_VERSION_PINNED,
-    snippet: `function first(arr: number[]): number { return arr[0] ?? 0; }`,
+    snippet: "function first(arr: number[]): number { return arr[0] ?? 0; }",
     expected: {
       timeComplexity: "O(1)",
       spaceComplexity: "O(1)",
@@ -186,7 +186,8 @@ export const CORPUS: CorpusEntry[] = [
 
   {
     id: "builtin-sort",
-    description: "Array.sort() drives O(n log n) time; space is O(log n) because sort's stack cost dominates the spread in the engine's space model",
+    description:
+      "Array.sort() drives O(n log n) time; space is O(log n) because sort's stack cost dominates the spread in the engine's space model",
     kbVersion: KB_VERSION_PINNED,
     snippet: `
       function sortedCopy(arr: number[]): number[] {
@@ -219,7 +220,8 @@ export const CORPUS: CorpusEntry[] = [
 
   {
     id: "includes-in-loop",
-    description: "arr.slice().includes() inside a for loop: engine reports O(n) (takes max of loop + calls, does not multiply). True algorithmic complexity is O(n²).",
+    description:
+      "arr.slice().includes() inside a for loop: engine reports O(n) (takes max of loop + calls, does not multiply). True algorithmic complexity is O(n²).",
     kbVersion: KB_VERSION_PINNED,
     snippet: `
       function hasDuplicates(arr: number[]): boolean {
@@ -378,7 +380,8 @@ export const CORPUS: CorpusEntry[] = [
 
   {
     id: "recursion-memoized",
-    description: "Memoized fibonacci: static analyzer still sees two recursive calls → O(2ⁿ). True complexity with memoization is O(n).",
+    description:
+      "Memoized fibonacci: static analyzer still sees two recursive calls → O(2ⁿ). True complexity with memoization is O(n).",
     kbVersion: KB_VERSION_PINNED,
     snippet: `
       function fibMemo(n: number, memo: Map<number, number> = new Map()): number {
@@ -400,7 +403,8 @@ export const CORPUS: CorpusEntry[] = [
 
   {
     id: "uncertain-single-recursive-call",
-    description: "Single recursive call with no clear input-reduction pattern → uncertain complexity",
+    description:
+      "Single recursive call with no clear input-reduction pattern → uncertain complexity",
     kbVersion: KB_VERSION_PINNED,
     snippet: `
       function mystery(n: number): number {

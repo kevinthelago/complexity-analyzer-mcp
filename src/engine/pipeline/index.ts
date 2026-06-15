@@ -1,7 +1,7 @@
 import { KB_VERSION } from "../cost-rules/index.js";
 import { findHotspots } from "../hotspots/index.js";
 import { parseCode } from "../parser/index.js";
-import { AnalysisResultSchema, type AnalysisResult, type UnitResult } from "../schema/index.js";
+import { type AnalysisResult, AnalysisResultSchema, type UnitResult } from "../schema/index.js";
 import { analyzeUnit } from "../static/index.js";
 
 export type { AnalysisResult, UnitResult } from "../schema/index.js";
@@ -119,6 +119,7 @@ function langFromFilename(filename: string): string {
   if (filename.endsWith(".tsx")) return "tsx";
   if (filename.endsWith(".ts")) return "typescript";
   if (filename.endsWith(".jsx")) return "jsx";
-  if (filename.endsWith(".js") || filename.endsWith(".mjs") || filename.endsWith(".cjs")) return "javascript";
+  if (filename.endsWith(".js") || filename.endsWith(".mjs") || filename.endsWith(".cjs"))
+    return "javascript";
   return "unknown";
 }

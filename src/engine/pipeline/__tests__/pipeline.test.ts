@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AnalysisResultSchema } from "../../schema/index.js";
 import { runPipeline } from "../index.js";
 
-const SIMPLE_FN = `function add(a: number, b: number): number { return a + b; }`;
+const SIMPLE_FN = "function add(a: number, b: number): number { return a + b; }";
 const LOOP_FN = `
   function sum(arr: number[]): number {
     let s = 0;
@@ -99,7 +99,8 @@ describe("runPipeline — per-unit results", () => {
   it("each unit has expected fields", () => {
     const result = runPipeline(LOOP_FN);
     expect(result.units.length).toBeGreaterThan(0);
-    const unit = result.units[0]!;
+    const unit = result.units[0];
+    if (!unit) throw new Error("no unit returned");
     expect(typeof unit.name).toBe("string");
     expect(["function", "method", "arrow", "constructor"]).toContain(unit.kind);
     expect(typeof unit.startLine).toBe("number");
@@ -113,17 +114,17 @@ describe("runPipeline — per-unit results", () => {
 
   it("O(1) function has empty hotspots", () => {
     const result = runPipeline(SIMPLE_FN);
-    expect(result.units[0]!.hotspots).toHaveLength(0);
+    expect(result.units[0]?.hotspots).toHaveLength(0);
   });
 
   it("loop function has hotspot in default pipeline", () => {
     const result = runPipeline(LOOP_FN);
-    expect(result.units[0]!.hotspots.length).toBeGreaterThan(0);
+    expect(result.units[0]?.hotspots.length).toBeGreaterThan(0);
   });
 
   it("nested loop function has O(n²) timeComplexity", () => {
     const result = runPipeline(NESTED_FN);
-    expect(result.units[0]!.timeComplexity).toBe("O(n²)");
+    expect(result.units[0]?.timeComplexity).toBe("O(n²)");
   });
 });
 
@@ -135,13 +136,13 @@ describe("runPipeline — subset pipelines", () => {
     expect(result.analyzedBy).toContain("parse");
     expect(result.analyzedBy).toContain("static");
     expect(result.analyzedBy).not.toContain("hotspots");
-    expect(result.units[0]!.hotspots).toHaveLength(0);
+    expect(result.units[0]?.hotspots).toHaveLength(0);
   });
 
   it("stages:['hotspots'] includes hotspot results", () => {
     const result = runPipeline(LOOP_FN, { stages: ["hotspots"] });
     expect(result.analyzedBy).toContain("hotspots");
-    expect(result.units[0]!.hotspots.length).toBeGreaterThan(0);
+    expect(result.units[0]?.hotspots.length).toBeGreaterThan(0);
   });
 
   it("requesting suggestions stage adds a note (not yet implemented)", () => {

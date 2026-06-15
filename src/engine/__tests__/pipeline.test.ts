@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { KB_VERSION } from "../../engine/cost-rules/index.js";
-import { analyze } from "../../engine/pipeline/index.js";
+import { runPipeline } from "../../engine/pipeline/index.js";
 import { AnalysisResultSchema } from "../../engine/schema/index.js";
 
 const SIMPLE_FN = "function add(a: number, b: number): number { return a + b; }";
@@ -11,88 +11,79 @@ const LOOP_FN = `
     return s;
   }
 `;
-describe("analyze — schema validation", () => {
+
+describe("runPipeline — schema validation", () => {
   it("output validates against AnalysisResultSchema for a simple function", () => {
-    const result = analyze(SIMPLE_FN);
+    const result = runPipeline(SIMPLE_FN);
     expect(() => AnalysisResultSchema.parse(result)).not.toThrow();
   });
 
   it("output validates for sources with no analyzable units", () => {
-    const result = analyze("const x = 1;");
+    const result = runPipeline("const x = 1;");
     expect(() => AnalysisResultSchema.parse(result)).not.toThrow();
   });
 
   it("output validates for any input — never throws", () => {
-    // TypeScript error-recovery parser handles malformed input gracefully;
-    // the pipeline always returns a well-formed result.
-    expect(() => analyze("function (((")).not.toThrow();
-    expect(() => analyze("$$$ not valid")).not.toThrow();
+    expect(() => runPipeline("function (((")).not.toThrow();
+    expect(() => runPipeline("$$$ not valid")).not.toThrow();
   });
 });
 
-describe("analyze — no-unit / empty result envelope", () => {
-  it("success=true with empty units when source has no functions", () => {
-    // ts-morph uses error recovery — even syntactically odd input may not
-    // produce a parseError; what matters is that the pipeline is non-throwing
-    // and well-formed.
-    const result = analyze("const x = 42; const y = 'hello';");
-    expect(result.success).toBe(true);
+describe("runPipeline — no-unit / empty result envelope", () => {
+  it("returns empty units array when source has no functions", () => {
+    const result = runPipeline("const x = 42; const y = 'hello';");
     expect(result.units).toHaveLength(0);
   });
 
   it("never throws on any input", () => {
-    expect(() => analyze("")).not.toThrow();
-    expect(() => analyze("function (((")).not.toThrow();
+    expect(() => runPipeline("")).not.toThrow();
+    expect(() => runPipeline("function (((")).not.toThrow();
   });
 });
 
-describe("analyze — metadata", () => {
+describe("runPipeline — metadata", () => {
   it("carries the current KB version", () => {
-    const result = analyze(SIMPLE_FN);
-    expect(result.metadata.kbVersion).toBe(KB_VERSION);
+    const result = runPipeline(SIMPLE_FN);
+    expect(result.kbVersion).toBe(KB_VERSION);
   });
 
-  it("detects ts lang from .ts filename", () => {
-    const result = analyze(SIMPLE_FN, { filename: "foo.ts" });
-    expect(result.metadata.lang).toBe("ts");
+  it("detects typescript lang from .ts filename", () => {
+    const result = runPipeline(SIMPLE_FN, { filename: "foo.ts" });
+    expect(result.lang).toBe("typescript");
   });
 
-  it("detects js lang from .js filename", () => {
-    const result = analyze("function f() { return 1; }", { filename: "foo.js" });
-    expect(result.metadata.lang).toBe("js");
-  });
-
-  it("respects explicit lang override", () => {
-    const result = analyze(SIMPLE_FN, { lang: "js" });
-    expect(result.metadata.lang).toBe("js");
+  it("detects javascript lang from .js filename", () => {
+    const result = runPipeline("function f() { return 1; }", { filename: "foo.js" });
+    expect(result.lang).toBe("javascript");
   });
 });
 
-describe("analyze — pipeline stages", () => {
+describe("runPipeline — pipeline stages", () => {
   it("runs hotspots stage by default", () => {
-    const result = analyze(LOOP_FN);
-    expect(result.success).toBe(true);
+    const result = runPipeline(LOOP_FN);
+    expect(result.analyzedBy).toContain("hotspots");
     const unit = result.units[0];
-    // An O(n) function should produce at least one hotspot (the loop itself).
     expect(unit?.hotspots).toBeDefined();
     expect(Array.isArray(unit?.hotspots)).toBe(true);
   });
 
-  it("skips hotspots when stage not requested", () => {
-    const result = analyze(LOOP_FN, { stages: ["static"] });
+  it("skips hotspots when stage not in options", () => {
+    const result = runPipeline(LOOP_FN, { stages: [] });
     const unit = result.units[0];
     expect(unit?.hotspots).toHaveLength(0);
+    expect(result.analyzedBy).not.toContain("hotspots");
   });
 
-  it("analyzedBy is 'static' for the static pipeline", () => {
-    const result = analyze(SIMPLE_FN);
-    expect(result.units[0]?.analyzedBy).toBe("static");
+  it("analyzedBy includes 'parse' and 'static'", () => {
+    const result = runPipeline(SIMPLE_FN);
+    expect(result.analyzedBy).toContain("parse");
+    expect(result.analyzedBy).toContain("static");
   });
 });
 
-describe("analyze — unit fields", () => {
+describe("runPipeline — per-unit results", () => {
   it("assembles per-unit complexity fields", () => {
-    const result = analyze(SIMPLE_FN);
+    const result = runPipeline(SIMPLE_FN);
     const unit = result.units[0];
     expect(unit?.timeComplexity).toBe("O(1)");
     expect(unit?.spaceComplexity).toBe("O(1)");
@@ -100,17 +91,30 @@ describe("analyze — unit fields", () => {
     expect(unit?.name).toBe("add");
   });
 
+  it("each unit has expected fields", () => {
+    const result = runPipeline(LOOP_FN);
+    expect(result.units.length).toBeGreaterThan(0);
+    const unit = result.units[0];
+    if (!unit) throw new Error("no unit returned");
+    expect(typeof unit.name).toBe("string");
+    expect(["function", "method", "arrow", "constructor"]).toContain(unit.kind);
+    expect(typeof unit.startLine).toBe("number");
+    expect(typeof unit.endLine).toBe("number");
+    expect(typeof unit.timeComplexity).toBe("string");
+    expect(typeof unit.spaceComplexity).toBe("string");
+  });
+
   it("is a pure function — identical input yields identical output", () => {
-    const r1 = analyze(LOOP_FN);
-    const r2 = analyze(LOOP_FN);
+    const r1 = runPipeline(LOOP_FN);
+    const r2 = runPipeline(LOOP_FN);
     expect(JSON.stringify(r1)).toBe(JSON.stringify(r2));
   });
 });
 
-describe("analyze — statelessness", () => {
+describe("runPipeline — statelessness", () => {
   it("two successive calls are independent", () => {
-    const a = analyze(SIMPLE_FN);
-    const b = analyze(LOOP_FN);
+    const a = runPipeline(SIMPLE_FN);
+    const b = runPipeline(LOOP_FN);
     expect(a.units[0]?.timeComplexity).toBe("O(1)");
     expect(b.units[0]?.timeComplexity).toBe("O(n)");
   });

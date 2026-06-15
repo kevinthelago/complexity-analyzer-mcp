@@ -29,12 +29,10 @@ describe("golden corpus", () => {
       // 1. Parse
       const parsed = parseCode(entry.snippet, "corpus.ts");
       expect(parsed.success, `Parse failed for ${entry.id}`).toBe(true);
-      expect(
-        parsed.units.length,
-        `No analyzable units found in ${entry.id}`,
-      ).toBeGreaterThan(0);
+      expect(parsed.units.length, `No analyzable units found in ${entry.id}`).toBeGreaterThan(0);
 
-      const unit = parsed.units[0]!;
+      const unit = parsed.units[0];
+      if (!unit) throw new Error(`[${entry.id}] No unit parsed`);
 
       // 2. Static pass
       const result = analyzeUnit(unit);
@@ -50,10 +48,9 @@ describe("golden corpus", () => {
 
       // 4. Assert confidence (when specified)
       if (entry.expected.confidence !== undefined) {
-        expect(
-          result.confidence,
-          `[${entry.id}] confidence mismatch`,
-        ).toBe(entry.expected.confidence);
+        expect(result.confidence, `[${entry.id}] confidence mismatch`).toBe(
+          entry.expected.confidence,
+        );
       }
 
       // 5. Assert uncertainty (when expected)

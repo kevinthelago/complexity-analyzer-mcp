@@ -7,7 +7,7 @@ export default defineConfig({
     include: ["src/**/*.test.ts", "src/**/*.spec.ts", "test/**/*.test.ts", "test/**/*.spec.ts"],
     coverage: {
       provider: "v8",
-      include: ["src/engine/**", "src/runtime/**"],
+      include: ["src/engine/**"],
       exclude: ["src/mcp/**", "src/cli/**"],
     },
   },

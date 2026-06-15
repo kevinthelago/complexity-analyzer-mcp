@@ -33,26 +33,4 @@ export default defineConfig([
     sourcemap: true,
     shims: false,
   },
-  {
-    // Public API for the runtime module
-    entry: { "runtime/index": "src/runtime/index.ts" },
-    format: ["esm"],
-    target: "node22",
-    platform: "node",
-    outDir: "dist",
-    dts: true,
-    sourcemap: true,
-    shims: false,
-  },
-  {
-    // Worker thread — compiled as a separate entry so sandbox.ts can reference it by path
-    entry: { "runtime/worker": "src/runtime/worker.ts" },
-    format: ["esm"],
-    target: "node22",
-    platform: "node",
-    outDir: "dist",
-    dts: false,
-    sourcemap: true,
-    shims: false,
-  },
 ]);

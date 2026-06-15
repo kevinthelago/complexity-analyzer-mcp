@@ -5,3 +5,4 @@ dist/
 .env
 coverage/
 *.tsbuildinfo
+test-results.txt

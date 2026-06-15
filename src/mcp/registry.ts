@@ -33,9 +33,7 @@ export async function discoverTools(): Promise<ToolDefinition[]> {
   const toolFiles = entries
     .filter(
       (f) =>
-        (f.endsWith(".js") || f.endsWith(".ts")) &&
-        !f.includes(".test.") &&
-        !f.includes(".spec."),
+        (f.endsWith(".js") || f.endsWith(".ts")) && !f.includes(".test.") && !f.includes(".spec."),
     )
     .sort();
 

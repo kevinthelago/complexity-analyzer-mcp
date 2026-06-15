@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { basename } from "node:path";
 import { z } from "zod";
 import { parseCode } from "../../engine/parser/index.js";
 import { analyzeUnit } from "../../engine/static/index.js";
@@ -6,20 +8,59 @@ import type { ToolArgs, ToolDefinition } from "../types.js";
 const MAX_SOURCE_BYTES = 256 * 1024;
 
 const inputShape = {
-  code: z.string().describe("TypeScript or JavaScript source code to analyse."),
+  code: z
+    .string()
+    .optional()
+    .describe(
+      "TypeScript or JavaScript source code to analyse. Takes precedence over path when both are provided.",
+    ),
+  path: z
+    .string()
+    .optional()
+    .describe("Absolute path to a TypeScript or JavaScript source file to read and analyse."),
   filename: z
     .string()
     .optional()
     .describe(
-      "Optional filename for language detection (e.g. 'input.ts'). Defaults to 'input.ts'.",
+      "Optional filename hint for language detection (e.g. 'input.ts'). Defaults to the basename of path, or 'input.ts'.",
     ),
 };
 
 function execute(args: ToolArgs<typeof inputShape>) {
-  const { code } = args;
-  const filename = args.filename ?? "input.ts";
+  let source: string;
+  let resolvedFilename: string;
 
-  if (Buffer.byteLength(code, "utf8") > MAX_SOURCE_BYTES) {
+  if (args.code !== undefined) {
+    source = args.code;
+    resolvedFilename = args.filename ?? "input.ts";
+  } else if (args.path !== undefined) {
+    try {
+      source = readFileSync(args.path, "utf8");
+    } catch (err) {
+      return {
+        isError: true as const,
+        content: [
+          {
+            type: "text" as const,
+            text: `Error: could not read "${args.path}": ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
+      };
+    }
+    resolvedFilename = args.filename ?? basename(args.path);
+  } else {
+    return {
+      isError: true as const,
+      content: [
+        {
+          type: "text" as const,
+          text: "Error: either code or path must be provided.",
+        },
+      ],
+    };
+  }
+
+  if (Buffer.byteLength(source, "utf8") > MAX_SOURCE_BYTES) {
     return {
       isError: true as const,
       content: [
@@ -31,7 +72,7 @@ function execute(args: ToolArgs<typeof inputShape>) {
     };
   }
 
-  const parsed = parseCode(code, filename);
+  const parsed = parseCode(source, resolvedFilename);
 
   if (!parsed.success) {
     return {
@@ -85,7 +126,8 @@ const tool: ToolDefinition<typeof inputShape> = {
   description:
     "Analyse TypeScript or JavaScript code and return time/space Big-O complexity estimates, " +
     "confidence levels, and uncertain-construct descriptions for every function, method, " +
-    "arrow function, and constructor in the source.",
+    "arrow function, and constructor in the source. Supply either code (inline source) or " +
+    "path (file path); code takes precedence when both are given.",
   inputShape,
   execute,
 };

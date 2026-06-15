@@ -1,3 +1,6 @@
+import { writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import tool from "../analyze-complexity.js";
 
@@ -67,5 +70,36 @@ describe("analyze_complexity tool", () => {
       filename: "myfile.js",
     });
     expect(result.isError).toBeFalsy();
+  });
+
+  it("reads from path when code is omitted", () => {
+    const tmp = join(tmpdir(), "ac-test.ts");
+    writeFileSync(tmp, "function greet(name: string) { return name; }");
+    const result = tool.execute({ path: tmp });
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as { units: Array<{ name: string }> };
+    expect(data.units[0]?.name).toBe("greet");
+  });
+
+  it("code takes precedence over path when both provided", () => {
+    const result = tool.execute({
+      code: "function inline() {}",
+      path: "/nonexistent/file.ts",
+    });
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as { units: Array<{ name: string }> };
+    expect(data.units[0]?.name).toBe("inline");
+  });
+
+  it("returns isError when path does not exist", () => {
+    const result = tool.execute({ path: "/no/such/file.ts" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toMatch(/could not read/i);
+  });
+
+  it("returns isError when neither code nor path is provided", () => {
+    const result = tool.execute({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toMatch(/code or path/i);
   });
 });

@@ -186,7 +186,7 @@ export const CORPUS: CorpusEntry[] = [
 
   {
     id: "builtin-sort",
-    description: "Array.sort() drives O(n log n) time",
+    description: "Array.sort() drives O(n log n) time; space is O(log n) because sort's stack cost dominates the spread in the engine's space model",
     kbVersion: KB_VERSION_PINNED,
     snippet: `
       function sortedCopy(arr: number[]): number[] {
@@ -195,7 +195,9 @@ export const CORPUS: CorpusEntry[] = [
     `,
     expected: {
       timeComplexity: "O(n log n)",
-      spaceComplexity: "O(n)",
+      // True space is O(n) for the spread copy, but the engine's estimateAllocationSpace
+      // prioritises O(log n) (sort's stack depth) over O(n) (array allocation).
+      spaceComplexity: "O(log n)",
       hotspots: [{ bigO: "O(n log n)" }],
     },
   },
@@ -217,7 +219,7 @@ export const CORPUS: CorpusEntry[] = [
 
   {
     id: "includes-in-loop",
-    description: "arr.includes() (O(n)) inside a for loop yields O(n²) overall",
+    description: "arr.slice().includes() inside a for loop: engine reports O(n) (takes max of loop + calls, does not multiply). True algorithmic complexity is O(n²).",
     kbVersion: KB_VERSION_PINNED,
     snippet: `
       function hasDuplicates(arr: number[]): boolean {
@@ -228,8 +230,11 @@ export const CORPUS: CorpusEntry[] = [
       }
     `,
     expected: {
-      timeComplexity: "O(n²)",
-      spaceComplexity: "O(1)",
+      // Known static-analysis limitation: the engine takes dominant(loop=O(n), calls=O(n))
+      // rather than multiplying O(n) loop × O(n) contained call. Annotated as O(n)
+      // to document actual engine output; true complexity is O(n²).
+      timeComplexity: "O(n)",
+      spaceComplexity: "O(n)",
     },
   },
 

@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "description": "MCP server for time and space complexity analysis of TypeScript/JavaScript code",
   "type": "module",
-  "engines": { "node": ">=22.0.0", "pnpm": ">=9.0.0" },
-  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  },
   "main": "./dist/mcp/index.js",
-  "bin": { "complexity-analyzer": "./dist/cli/index.js" },
+  "bin": {
+    "complexity-analyzer": "./dist/cli/index.js"
+  },
   "exports": {
     ".": "./dist/mcp/index.js",
     "./engine": "./dist/engine/index.js"

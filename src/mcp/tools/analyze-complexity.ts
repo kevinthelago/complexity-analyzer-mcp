@@ -1,33 +1,32 @@
-import { z } from "zod";
 import { parseCode } from "../../engine/parser/index.js";
 import { analyzeUnit } from "../../engine/static/index.js";
-import type { ToolArgs, ToolDefinition } from "../types.js";
+import type { McpTool, McpToolCallResult } from "../types.js";
 
-const MAX_SOURCE_BYTES = 256 * 1024;
+const INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    code: {
+      type: "string",
+      description: "TypeScript or JavaScript source code to analyze.",
+    },
+    filename: {
+      type: "string",
+      description:
+        "Optional filename for language detection (e.g. 'index.ts'). Defaults to 'input.ts'.",
+    },
+  },
+  required: ["code"],
+} as const;
 
-const inputShape = {
-  code: z.string().describe("TypeScript or JavaScript source code to analyse."),
-  filename: z
-    .string()
-    .optional()
-    .describe(
-      "Optional filename for language detection (e.g. 'input.ts'). Defaults to 'input.ts'.",
-    ),
-};
+function execute(args: Record<string, unknown>): McpToolCallResult {
+  const code = args.code;
+  const rawFilename = args.filename;
+  const filename = typeof rawFilename === "string" ? rawFilename : "input.ts";
 
-function execute(args: ToolArgs<typeof inputShape>) {
-  const { code } = args;
-  const filename = args.filename ?? "input.ts";
-
-  if (Buffer.byteLength(code, "utf8") > MAX_SOURCE_BYTES) {
+  if (typeof code !== "string") {
     return {
-      isError: true as const,
-      content: [
-        {
-          type: "text" as const,
-          text: `Error: input exceeds the ${MAX_SOURCE_BYTES / 1024} KB limit`,
-        },
-      ],
+      isError: true,
+      content: [{ type: "text", text: "Error: 'code' must be a string" }],
     };
   }
 
@@ -35,26 +34,11 @@ function execute(args: ToolArgs<typeof inputShape>) {
 
   if (!parsed.success) {
     return {
-      isError: true as const,
+      isError: true,
       content: [
         {
-          type: "text" as const,
+          type: "text",
           text: `Parse error: ${parsed.parseError?.message ?? "unknown error"}`,
-        },
-      ],
-    };
-  }
-
-  if (parsed.units.length === 0) {
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: JSON.stringify(
-            { units: [], message: "No analyzable functions or methods found." },
-            null,
-            2,
-          ),
         },
       ],
     };
@@ -62,32 +46,30 @@ function execute(args: ToolArgs<typeof inputShape>) {
 
   const units = parsed.units.map((unit) => {
     const r = analyzeUnit(unit);
-    return {
-      name: unit.name,
+    const entry: Record<string, unknown> = {
       kind: unit.kind,
+      name: unit.name,
       startLine: unit.startLine,
       endLine: unit.endLine,
       timeComplexity: r.timeComplexity,
       spaceComplexity: r.spaceComplexity,
       confidence: r.confidence,
       uncertainNodes: r.uncertainNodes,
-      ...(r.recursion !== undefined ? { recursion: r.recursion } : {}),
     };
+    if (r.recursion !== undefined) entry.recursion = r.recursion;
+    return entry;
   });
 
   return {
-    content: [{ type: "text" as const, text: JSON.stringify({ units }, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify({ file: filename, units }, null, 2) }],
   };
 }
 
-const tool: ToolDefinition<typeof inputShape> = {
+/** MCP tool definition for analyze_complexity. */
+export const analyzeComplexityTool: McpTool = {
   name: "analyze_complexity",
   description:
-    "Analyse TypeScript or JavaScript code and return time/space Big-O complexity estimates, " +
-    "confidence levels, and uncertain-construct descriptions for every function, method, " +
-    "arrow function, and constructor in the source.",
-  inputShape,
+    "Analyze TypeScript/JavaScript source code and return the time complexity, space complexity, and confidence for each function or method.",
+  inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   execute,
 };
-
-export default tool;

@@ -2,82 +2,109 @@ import { z } from "zod";
 import { parseCode } from "../../engine/parser/index.js";
 import { analyzeUnit } from "../../engine/static/index.js";
 import { deepAnalyzeUnit } from "../../llm/index.js";
-import type { ToolArgs, ToolDefinition } from "../types.js";
+import type { McpTool, McpToolCallResult } from "../types.js";
 
-const MAX_SOURCE_BYTES = 256 * 1024;
+// ── Input validation ──────────────────────────────────────────────────────────
 
-const inputShape = {
-  code: z.string().describe("TypeScript or JavaScript source code to analyse."),
-  filename: z
-    .string()
-    .optional()
-    .describe(
-      "Optional filename for language detection (e.g. 'input.ts'). Defaults to 'input.ts'.",
-    ),
+/** Maximum source bytes accepted to guard against oversized input. */
+const MAX_SOURCE_BYTES = 256 * 1024; // 256 KB
+
+const inputSchema = z.object({
+  code: z.string().optional(),
+  filename: z.string().optional(),
+});
+
+const INPUT_JSON_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    code: {
+      type: "string",
+      description: "TypeScript or JavaScript source code to analyse.",
+    },
+    filename: {
+      type: "string",
+      description: "Optional filename for language detection (e.g. 'index.ts').",
+    },
+  },
 };
 
-async function execute(args: ToolArgs<typeof inputShape>) {
-  const { code } = args;
-  const filename = args.filename ?? "input.ts";
-  if (Buffer.byteLength(code, "utf8") > MAX_SOURCE_BYTES) {
+// ── Execute ───────────────────────────────────────────────────────────────────
+
+async function execute(args: Record<string, unknown>): Promise<McpToolCallResult> {
+  let parsed: z.infer<typeof inputSchema>;
+  try {
+    parsed = inputSchema.parse(args);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { isError: true, content: [{ type: "text", text: `Invalid arguments: ${msg}` }] };
+  }
+
+  if (!parsed.code) {
     return {
-      isError: true as const,
+      isError: true,
       content: [
         {
-          type: "text" as const,
-          text: `Error: input exceeds the ${MAX_SOURCE_BYTES / 1024} KB limit`,
+          type: "text",
+          text: "deep_analyze requires an inline `code` string (path support coming in a future version).",
         },
       ],
     };
   }
 
-  const parsed = parseCode(code, filename);
-
-  if (!parsed.success) {
+  if (Buffer.byteLength(parsed.code, "utf8") > MAX_SOURCE_BYTES) {
     return {
-      isError: true as const,
+      isError: true,
       content: [
         {
-          type: "text" as const,
-          text: `Parse error: ${parsed.parseError?.message ?? "unknown error"}`,
+          type: "text",
+          text: `Input exceeds the ${MAX_SOURCE_BYTES / 1024} KB limit.`,
         },
       ],
     };
   }
 
-  if (parsed.units.length === 0) {
+  const filename = parsed.filename ?? "input.ts";
+  const parseResult = parseCode(parsed.code, filename);
+
+  if (!parseResult.success) {
     return {
+      isError: true,
       content: [
         {
-          type: "text" as const,
-          text: JSON.stringify(
-            { units: [], message: "No analyzable functions or methods found." },
-            null,
-            2,
-          ),
+          type: "text",
+          text: `Parse error: ${parseResult.parseError?.message ?? "unknown"}`,
         },
       ],
     };
   }
 
-  const results = await Promise.all(
-    parsed.units.map((unit) => deepAnalyzeUnit({ unit, staticResult: analyzeUnit(unit) })),
-  );
+  if (parseResult.units.length === 0) {
+    return {
+      content: [{ type: "text", text: JSON.stringify([], null, 2) }],
+    };
+  }
 
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify({ units: results }, null, 2) }],
-  };
+  try {
+    const results = await Promise.all(
+      parseResult.units.map((unit) => deepAnalyzeUnit({ unit, staticResult: analyzeUnit(unit) })),
+    );
+    return { content: [{ type: "text", text: JSON.stringify(results, null, 2) }] };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { isError: true, content: [{ type: "text", text: `LLM analysis failed: ${msg}` }] };
+  }
 }
 
-const tool: ToolDefinition<typeof inputShape> = {
+// ── Export ────────────────────────────────────────────────────────────────────
+
+/** MCP tool definition for deep_analyze — LLM-powered complexity verification pass. */
+export const deepAnalyzeTool: McpTool = {
   name: "deep_analyze",
   description:
-    "Analyse TypeScript or JavaScript code for time and space complexity using static analysis " +
-    "followed by an LLM reasoning pass. Returns Big-O estimates, confidence levels, " +
-    "LLM-verified complexities, and an optional more-efficient alternative implementation. " +
-    "Requires ANTHROPIC_API_KEY; degrades gracefully to static-only analysis when unavailable.",
-  inputShape,
+    "Analyse TypeScript/JavaScript code for time and space complexity using static analysis " +
+    "followed by an LLM refinement pass. Returns Big-O estimates, confidence levels, " +
+    "uncertain-node descriptions, and an optional more-efficient alternative implementation. " +
+    "Requires ANTHROPIC_API_KEY.",
+  inputSchema: INPUT_JSON_SCHEMA,
   execute,
 };
-
-export default tool;

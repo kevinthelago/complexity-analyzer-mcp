@@ -1,30 +1,44 @@
-import { z } from "zod";
 import { parseCode } from "../../engine/parser/index.js";
 import { analyzeUnit } from "../../engine/static/index.js";
 import { suggestOptimizations } from "../../engine/suggest/index.js";
-import type { ToolArgs, ToolDefinition } from "../types.js";
+import type { McpTool, McpToolCallResult } from "../types.js";
 
-const inputShape = {
-  code: z.string().describe("TypeScript or JavaScript source code to analyse."),
-  filename: z
-    .string()
-    .optional()
-    .describe(
-      "Optional filename for language detection (e.g. 'index.ts'). Defaults to 'input.ts'.",
-    ),
-};
+const INPUT_SCHEMA = {
+  type: "object",
+  properties: {
+    code: {
+      type: "string",
+      description: "TypeScript or JavaScript source code to analyze.",
+    },
+    filename: {
+      type: "string",
+      description:
+        "Optional filename for language detection (e.g. 'index.ts'). Defaults to 'input.ts'.",
+    },
+  },
+  required: ["code"],
+} as const;
 
-function execute(args: ToolArgs<typeof inputShape>) {
-  const { code } = args;
-  const filename = args.filename ?? "input.ts";
+function execute(args: Record<string, unknown>): McpToolCallResult {
+  const code = args.code;
+  const rawFilename = args.filename;
+  const filename = typeof rawFilename === "string" ? rawFilename : "input.ts";
+
+  if (typeof code !== "string") {
+    return {
+      isError: true,
+      content: [{ type: "text", text: "Error: 'code' must be a string" }],
+    };
+  }
+
   const parsed = parseCode(code, filename);
 
   if (!parsed.success) {
     return {
-      isError: true as const,
+      isError: true,
       content: [
         {
-          type: "text" as const,
+          type: "text",
           text: `Parse error: ${parsed.parseError?.message ?? "unknown error"}`,
         },
       ],
@@ -35,7 +49,7 @@ function execute(args: ToolArgs<typeof inputShape>) {
     return {
       content: [
         {
-          type: "text" as const,
+          type: "text",
           text: JSON.stringify({ suggestions: [], summary: "no improvement found" }, null, 2),
         },
       ],
@@ -57,17 +71,15 @@ function execute(args: ToolArgs<typeof inputShape>) {
   };
 
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
   };
 }
 
-const tool: ToolDefinition<typeof inputShape> = {
+/** MCP tool definition for suggest_optimizations. */
+export const suggestOptimizationsTool: McpTool = {
   name: "suggest_optimizations",
   description:
-    "Analyze TypeScript/JavaScript code for performance anti-patterns and suggest data-structure " +
-    "or algorithmic optimizations with projected Big-O improvements.",
-  inputShape,
+    "Analyze TypeScript/JavaScript code for performance anti-patterns and suggest data-structure or algorithmic optimizations with projected Big-O improvements.",
+  inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   execute,
 };
-
-export default tool;

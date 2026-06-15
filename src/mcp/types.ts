@@ -1,25 +1,43 @@
-import type { z } from "zod";
-
-/** Raw zod shape (not ZodObject) that the McpServer accepts for tool schemas. */
-export type ToolInputShape = Record<string, z.ZodTypeAny>;
-
-/** Resolved arg types from a ToolInputShape. */
-export type ToolArgs<S extends ToolInputShape> = { [K in keyof S]: z.infer<S[K]> };
-
-export interface ToolCallResult {
-  [key: string]: unknown;
-  isError?: true;
-  content: Array<{ type: "text"; text: string }>;
+export interface McpContentBlock {
+  type: "text";
+  text: string;
 }
 
-/**
- * Contract each module under src/mcp/tools/ must default-export.
- * The registry auto-discovers these at startup — new tools are files, not list entries.
- */
-export interface ToolDefinition<S extends ToolInputShape = ToolInputShape> {
-  readonly name: string;
-  readonly description: string;
-  /** Zod raw shape used for input validation and MCP schema generation. */
-  readonly inputShape: S;
-  execute(args: ToolArgs<S>): ToolCallResult | Promise<ToolCallResult>;
+export interface McpToolCallResult {
+  content: McpContentBlock[];
+  isError?: boolean;
 }
+
+export interface McpTool {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  execute: (args: Record<string, unknown>) => McpToolCallResult | Promise<McpToolCallResult>;
+}
+
+// JSON-RPC 2.0 types (subset used by the MCP stdio transport)
+
+export interface JsonRpcRequest {
+  jsonrpc: "2.0";
+  id: string | number | null;
+  method: string;
+  params?: unknown;
+}
+
+export interface JsonRpcSuccessResponse<T = unknown> {
+  jsonrpc: "2.0";
+  id: string | number | null;
+  result: T;
+}
+
+export interface JsonRpcErrorResponse {
+  jsonrpc: "2.0";
+  id: string | number | null;
+  error: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+}
+
+export type JsonRpcResponse<T = unknown> = JsonRpcSuccessResponse<T> | JsonRpcErrorResponse;

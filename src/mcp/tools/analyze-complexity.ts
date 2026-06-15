@@ -1,6 +1,5 @@
 import { parseCode } from "../../engine/parser/index.js";
 import { analyzeUnit } from "../../engine/static/index.js";
-import { suggestOptimizations } from "../../engine/suggest/index.js";
 import type { McpTool, McpToolCallResult } from "../types.js";
 
 const INPUT_SCHEMA = {
@@ -45,41 +44,32 @@ function execute(args: Record<string, unknown>): McpToolCallResult {
     };
   }
 
-  if (parsed.units.length === 0) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({ suggestions: [], summary: "no improvement found" }, null, 2),
-        },
-      ],
+  const units = parsed.units.map((unit) => {
+    const r = analyzeUnit(unit);
+    const entry: Record<string, unknown> = {
+      kind: unit.kind,
+      name: unit.name,
+      startLine: unit.startLine,
+      endLine: unit.endLine,
+      timeComplexity: r.timeComplexity,
+      spaceComplexity: r.spaceComplexity,
+      confidence: r.confidence,
+      uncertainNodes: r.uncertainNodes,
     };
-  }
-
-  const allSuggestions = parsed.units.flatMap((unit) => {
-    const staticResult = analyzeUnit(unit);
-    const { suggestions } = suggestOptimizations(unit, staticResult);
-    return suggestions.map((s) => ({ ...s, functionName: unit.name }));
+    if (r.recursion !== undefined) entry.recursion = r.recursion;
+    return entry;
   });
 
-  const result = {
-    suggestions: allSuggestions,
-    summary:
-      allSuggestions.length > 0
-        ? `Found ${allSuggestions.length} optimization ${allSuggestions.length === 1 ? "opportunity" : "opportunities"}.`
-        : "no improvement found",
-  };
-
   return {
-    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify({ file: filename, units }, null, 2) }],
   };
 }
 
-/** MCP tool definition for suggest_optimizations. */
-export const suggestOptimizationsTool: McpTool = {
-  name: "suggest_optimizations",
+/** MCP tool definition for analyze_complexity. */
+export const analyzeComplexityTool: McpTool = {
+  name: "analyze_complexity",
   description:
-    "Analyze TypeScript/JavaScript code for performance anti-patterns and suggest data-structure or algorithmic optimizations with projected Big-O improvements.",
+    "Analyze TypeScript/JavaScript source code and return the time complexity, space complexity, and confidence for each function or method.",
   inputSchema: INPUT_SCHEMA as unknown as Record<string, unknown>,
   execute,
 };

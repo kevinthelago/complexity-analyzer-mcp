@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { findHotspots } from "../../engine/hotspots/index.js";
 import { parseCode } from "../../engine/parser/index.js";
 import { analyzeUnit } from "../../engine/static/index.js";
+import { suggestOptimizations } from "../../engine/suggest/index.js";
 import { deepAnalyzeUnit } from "../../llm/index.js";
 import type { ToolArgs, ToolDefinition } from "../types.js";
 
@@ -60,7 +62,12 @@ async function execute(args: ToolArgs<typeof inputShape>) {
   }
 
   const results = await Promise.all(
-    parsed.units.map((unit) => deepAnalyzeUnit({ unit, staticResult: analyzeUnit(unit) })),
+    parsed.units.map((unit) => {
+      const staticResult = analyzeUnit(unit);
+      const hotspots = findHotspots(unit, staticResult);
+      const suggestions = suggestOptimizations(unit, staticResult);
+      return deepAnalyzeUnit({ unit, staticResult, hotspots, suggestions });
+    }),
   );
 
   return {
@@ -73,8 +80,9 @@ const tool: ToolDefinition<typeof inputShape> = {
   description:
     "Analyse TypeScript or JavaScript code for time and space complexity using static analysis " +
     "followed by an LLM reasoning pass. Returns Big-O estimates, confidence levels, " +
-    "LLM-verified complexities, and an optional more-efficient alternative implementation. " +
-    "Requires ANTHROPIC_API_KEY; degrades gracefully to static-only analysis when unavailable.",
+    "LLM-verified complexities, hotspots, optimization suggestions, and an optional " +
+    "more-efficient alternative implementation. " +
+    "Requires ANTHROPIC_API_KEY or OPENAI_API_KEY; degrades gracefully to static-only analysis when unavailable.",
   inputShape,
   execute,
 };

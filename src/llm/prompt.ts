@@ -1,5 +1,8 @@
+import type { Hotspot } from "../engine/hotspots/index.js";
 import type { AnalyzableUnit } from "../engine/parser/types.js";
 import type { StaticComplexityResult } from "../engine/static/types.js";
+import type { SuggestionResult } from "../engine/suggest/index.js";
+import type { EmpiricalResult } from "../runtime/types.js";
 
 const BIG_O_VALUES = [
   "O(1)",
@@ -12,8 +15,42 @@ const BIG_O_VALUES = [
   "unknown",
 ];
 
+function buildHotspotsSection(hotspots: Hotspot[] | undefined): string {
+  if (!hotspots || hotspots.length === 0) return "";
+  const lines = hotspots.map(
+    (h) =>
+      `  - Line ${h.line}, col ${h.col}: ${h.reason}${h.uncertain ? " (uncertain)" : ""} — snippet: ${h.snippet.slice(0, 80)}`,
+  );
+  return `\nHotspots (costly constructs):\n${lines.join("\n")}`;
+}
+
+function buildSuggestionsSection(suggestions: SuggestionResult | undefined): string {
+  if (!suggestions || suggestions.suggestions.length === 0) return "";
+  const lines = suggestions.suggestions.map(
+    (s) =>
+      `  - [${s.pattern}] Lines ${s.location.startLine}–${s.location.endLine}: ` +
+      `${s.description} (${s.currentComplexity} → ${s.projectedComplexity})`,
+  );
+  return `\nStatic optimization suggestions:\n${lines.join("\n")}`;
+}
+
+function buildEmpiricalSection(empirical: EmpiricalResult | undefined): string {
+  if (!empirical) return "";
+  return (
+    `\nEmpirical measurement: ${empirical.bigO} ` +
+    `(R²=${empirical.rSquared.toFixed(3)}, confidence=${empirical.confidence}, ` +
+    `reconciliation=${empirical.reconciliation})`
+  );
+}
+
 /** Build the user-turn prompt sent to the LLM for deep complexity analysis. */
-export function buildPrompt(unit: AnalyzableUnit, staticResult: StaticComplexityResult): string {
+export function buildPrompt(
+  unit: AnalyzableUnit,
+  staticResult: StaticComplexityResult,
+  hotspots?: Hotspot[],
+  suggestions?: SuggestionResult,
+  empirical?: EmpiricalResult,
+): string {
   const sourceCode = unit.node.getText();
 
   const uncertainSection =
@@ -27,13 +64,17 @@ export function buildPrompt(unit: AnalyzableUnit, staticResult: StaticComplexity
     ? `Recursion detected: ${staticResult.recursion.kind} — ${staticResult.recursion.rationale}`
     : "";
 
+  const hotspotsSection = buildHotspotsSection(hotspots);
+  const suggestionsSection = buildSuggestionsSection(suggestions);
+  const empiricalSection = buildEmpiricalSection(empirical);
+
   return `You are a complexity analysis expert. Analyse the following TypeScript/JavaScript function and return a structured JSON verdict.
 
 STATIC ANALYSIS RESULT:
 - Function: ${unit.name}
 - Time complexity: ${staticResult.timeComplexity} (confidence: ${staticResult.confidence})
 - Space complexity: ${staticResult.spaceComplexity}
-- ${uncertainSection}${recursionSection ? `\n- ${recursionSection}` : ""}
+- ${uncertainSection}${recursionSection ? `\n- ${recursionSection}` : ""}${hotspotsSection}${suggestionsSection}${empiricalSection}
 
 SOURCE CODE:
 \`\`\`typescript
@@ -42,7 +83,9 @@ ${sourceCode}
 
 INSTRUCTIONS:
 1. Verify or correct the time and space Big-O estimates. Pay particular attention to the uncertain constructs listed above.
-2. If a meaningfully more efficient alternative exists, provide it. Otherwise omit the "alternative" key entirely.
+2. If hotspots or suggestions are listed, factor them into your analysis.
+3. If an empirical measurement is provided, use it to validate or override the static estimate.
+4. If a meaningfully more efficient alternative exists, provide it. Otherwise omit the "alternative" key entirely.
 
 Respond with ONLY valid JSON — no markdown fences, no prose:
 {

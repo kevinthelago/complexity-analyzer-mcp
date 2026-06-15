@@ -3,7 +3,12 @@ import { buildPrompt } from "./prompt.js";
 import { llmOutputSchema } from "./schema.js";
 import type { DeepAnalyzeInput, DeepAnalyzeResult, LLMClient } from "./types.js";
 
-export { createAnthropicClient, resolveClientFromEnv } from "./client.js";
+export {
+  createAnthropicClient,
+  createOpenAIClient,
+  createStubClient,
+  resolveClientFromEnv,
+} from "./client.js";
 export { llmOutputSchema } from "./schema.js";
 export type {
   DeepAnalyzeInput,
@@ -35,7 +40,13 @@ export async function deepAnalyzeUnit(
 
   let raw: string;
   try {
-    const prompt = buildPrompt(input.unit, input.staticResult);
+    const prompt = buildPrompt(
+      input.unit,
+      input.staticResult,
+      input.hotspots,
+      input.suggestions,
+      input.empirical,
+    );
     raw = await resolvedClient.complete(prompt);
   } catch {
     return { ...input.staticResult, llmStatus: "llm_error" };

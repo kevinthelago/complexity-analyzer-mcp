@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { findHotspots } from "../../engine/hotspots/index.js";
 import { parseCode } from "../../engine/parser/index.js";
 import { analyzeUnit } from "../../engine/static/index.js";
-import { deepAnalyzeUnit } from "../index.js";
+import { suggestOptimizations } from "../../engine/suggest/index.js";
+import { createStubClient, deepAnalyzeUnit } from "../index.js";
 import type { LLMClient } from "../types.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -201,5 +203,80 @@ describe("buildPrompt (via client.complete call arg)", () => {
     const prompt = complete.mock.calls[0]?.[0] as string;
     // The prompt must contain some mention of the uncertain call
     expect(prompt.toLowerCase()).toMatch(/uncertain|unknown cost/);
+  });
+
+  it("embeds hotspots in the prompt when provided", async () => {
+    const complete = vi.fn().mockResolvedValue(okResponse({ verifiedTimeComplexity: "O(n²)" }));
+    const client: LLMClient = { complete };
+    const src = `
+      function bubbleSort(arr: number[]) {
+        for (let i = 0; i < arr.length; i++)
+          for (let j = 0; j < arr.length; j++) {}
+        return arr;
+      }
+    `;
+    const unit = makeUnit(src);
+    const staticResult = analyzeUnit(unit);
+    const hotspots = findHotspots(unit, staticResult);
+    const result = await deepAnalyzeUnit({ unit, staticResult, hotspots }, client);
+    expect(result.llmStatus).toBe("ok");
+    const prompt = complete.mock.calls[0]?.[0] as string;
+    expect(prompt.toLowerCase()).toContain("hotspot");
+  });
+
+  it("embeds optimization suggestions in the prompt when provided", async () => {
+    const complete = vi.fn().mockResolvedValue(okResponse({ verifiedTimeComplexity: "O(n²)" }));
+    const client: LLMClient = { complete };
+    const src = `
+      function findDuplicates(arr: number[]) {
+        const result: number[] = [];
+        for (const x of arr)
+          if (arr.includes(x) && !result.includes(x)) result.push(x);
+        return result;
+      }
+    `;
+    const unit = makeUnit(src);
+    const staticResult = analyzeUnit(unit);
+    const suggestions = suggestOptimizations(unit, staticResult);
+    await deepAnalyzeUnit({ unit, staticResult, suggestions }, client);
+    const prompt = complete.mock.calls[0]?.[0] as string;
+    expect(prompt.toLowerCase()).toContain("suggestion");
+  });
+
+  it("embeds empirical measurement in the prompt when provided", async () => {
+    const complete = vi.fn().mockResolvedValue(okResponse());
+    const client: LLMClient = { complete };
+    const input = makeInput(
+      "function sum(arr: number[]) { let s = 0; for (const x of arr) s += x; return s; }",
+    );
+    const empirical = {
+      bigO: "O(n)",
+      rSquared: 0.998,
+      confidence: "high" as const,
+      reconciliation: "agree" as const,
+    };
+    await deepAnalyzeUnit({ ...input, empirical }, client);
+    const prompt = complete.mock.calls[0]?.[0] as string;
+    expect(prompt.toLowerCase()).toContain("empirical");
+    expect(prompt).toContain("0.998");
+  });
+});
+
+// ── createStubClient ──────────────────────────────────────────────────────────
+
+describe("createStubClient", () => {
+  it("returns the canned response without hitting the network", async () => {
+    const stub = createStubClient(okResponse());
+    const input = makeInput("function add(a: number, b: number) { return a + b; }");
+    const result = await deepAnalyzeUnit(input, stub);
+    expect(result.llmStatus).toBe("ok");
+    expect(result.verifiedTimeComplexity).toBe("O(n)");
+  });
+
+  it("returns llm_error when stub returns invalid JSON", async () => {
+    const stub = createStubClient("not-json");
+    const input = makeInput("function add(a: number, b: number) { return a + b; }");
+    const result = await deepAnalyzeUnit(input, stub);
+    expect(result.llmStatus).toBe("llm_error");
   });
 });

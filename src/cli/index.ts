@@ -3,6 +3,8 @@ import { extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { analyzeUnit, parseCode } from "../engine/index.js";
 import type { RecursionInfo, UncertainNode } from "../engine/index.js";
+import { deepAnalyzeUnit } from "../llm/index.js";
+import type { LLMAlternative, LLMClient } from "../llm/index.js";
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -23,6 +25,12 @@ export interface UnitResult {
   confidence: "high" | "medium" | "low";
   recursion?: RecursionInfo;
   uncertainNodes: UncertainNode[];
+  // LLM enrichment (--deep only)
+  llmStatus?: "ok" | "llm_unavailable" | "llm_error";
+  verifiedTimeComplexity?: string;
+  verifiedSpaceComplexity?: string;
+  llmRationale?: string;
+  alternative?: LLMAlternative;
 }
 
 export interface AnalysisOutput {
@@ -55,8 +63,9 @@ function parserFilename(filePath: string, lang: string): string {
   return lang === "js" ? `${base}.js` : `${base}.ts`;
 }
 
-// ── Analysis runner (thin engine orchestration — no analysis logic here) ─────
+// ── Analysis runners ──────────────────────────────────────────────────────────
 
+/** Static-only analysis. Synchronous. */
 export function runAnalysis(source: string, filePath: string, lang?: string): AnalysisOutput {
   const detectedLang = detectLang(filePath, lang);
   const filename = parserFilename(filePath, detectedLang);
@@ -86,6 +95,56 @@ export function runAnalysis(source: string, filePath: string, lang?: string): An
     if (r.recursion !== undefined) entry.recursion = r.recursion;
     return entry;
   });
+
+  return { file: filePath, lang: detectedLang, units };
+}
+
+/** LLM-enriched analysis (static + deepAnalyzeUnit per unit). Async. */
+export async function runDeepAnalysis(
+  source: string,
+  filePath: string,
+  lang?: string,
+  client?: LLMClient,
+): Promise<AnalysisOutput> {
+  const detectedLang = detectLang(filePath, lang);
+  const filename = parserFilename(filePath, detectedLang);
+  const parseResult = parseCode(source, filename);
+
+  if (!parseResult.success) {
+    return {
+      file: filePath,
+      lang: detectedLang,
+      parseError: parseResult.parseError?.message ?? "Parse failed",
+      units: [],
+    };
+  }
+
+  const units: UnitResult[] = await Promise.all(
+    parseResult.units.map(async (unit) => {
+      const staticResult = analyzeUnit(unit);
+      const deepResult = await deepAnalyzeUnit({ unit, staticResult }, client);
+
+      const entry: UnitResult = {
+        kind: unit.kind,
+        name: unit.name,
+        startLine: unit.startLine,
+        endLine: unit.endLine,
+        timeComplexity: deepResult.verifiedTimeComplexity ?? staticResult.timeComplexity,
+        spaceComplexity: deepResult.verifiedSpaceComplexity ?? staticResult.spaceComplexity,
+        confidence: staticResult.confidence,
+        llmStatus: deepResult.llmStatus,
+        uncertainNodes: staticResult.uncertainNodes,
+      };
+      if (staticResult.recursion !== undefined) entry.recursion = staticResult.recursion;
+      if (deepResult.verifiedTimeComplexity !== undefined)
+        entry.verifiedTimeComplexity = deepResult.verifiedTimeComplexity;
+      if (deepResult.verifiedSpaceComplexity !== undefined)
+        entry.verifiedSpaceComplexity = deepResult.verifiedSpaceComplexity;
+      if (deepResult.llmRationale !== undefined) entry.llmRationale = deepResult.llmRationale;
+      if (deepResult.alternative !== undefined) entry.alternative = deepResult.alternative;
+      return entry;
+    }),
+  );
 
   return { file: filePath, lang: detectedLang, units };
 }
@@ -120,6 +179,10 @@ export function formatHuman(result: AnalysisOutput): string {
     lines.push(`  Space:      ${u.spaceComplexity}`);
     lines.push(`  Confidence: ${CONFIDENCE_BADGE[u.confidence] ?? u.confidence}`);
 
+    if (u.llmStatus === "ok" && u.llmRationale) {
+      lines.push(`  LLM note:   ${u.llmRationale}`);
+    }
+
     if (u.recursion) {
       lines.push(`  Recursion:  ${u.recursion.kind} — ${u.recursion.rationale}`);
     }
@@ -129,6 +192,13 @@ export function formatHuman(result: AnalysisOutput): string {
       for (const n of u.uncertainNodes) {
         lines.push(`    ${n.line}:${n.col}  ${n.description}`);
       }
+    }
+
+    if (u.alternative) {
+      lines.push("  Alternative:");
+      lines.push(`    Time:    ${u.alternative.timeComplexity}`);
+      lines.push(`    Space:   ${u.alternative.spaceComplexity}`);
+      lines.push(`    Why:     ${u.alternative.rationale}`);
     }
   }
 
@@ -239,25 +309,27 @@ export async function runCli(opts: CliOptions): Promise<CliRunResult> {
     return { output: `Error: cannot read ${rawPath}: ${msg}\n`, exitCode: 1 };
   }
 
-  // --deep: LLM path (CA-11) not yet implemented; degrade gracefully
+  let result: AnalysisOutput;
   let deepNotice = "";
+
   if (deep) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       deepNotice = "\nNote: --deep requires ANTHROPIC_API_KEY. Showing static analysis only.\n";
+      result = runAnalysis(source, resolvedPath, lang);
     } else {
-      deepNotice = "\nNote: LLM deep analysis not yet available in this build.\n";
+      result = await runDeepAnalysis(source, resolvedPath, lang);
     }
+  } else {
+    result = runAnalysis(source, resolvedPath, lang);
   }
-
-  const result = runAnalysis(source, resolvedPath, lang);
 
   if (result.parseError && !json) {
     return { output: `Error: ${result.parseError}\n`, exitCode: 1 };
   }
 
   if (json) {
-    const payload = deep ? { ...result, deepAnalysis: null } : result;
+    const payload = deep ? { ...result, deepEnabled: true } : result;
     const output = `${JSON.stringify(payload, null, 2)}\n`;
     return { output, exitCode: result.parseError ? 1 : 0 };
   }

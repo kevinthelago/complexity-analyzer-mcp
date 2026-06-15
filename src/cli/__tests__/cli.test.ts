@@ -1,8 +1,16 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type AnalysisOutput, formatHuman, parseCliArgs, runAnalysis, runCli } from "../index.js";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import type { LLMClient } from "../../llm/index.js";
+import {
+  type AnalysisOutput,
+  formatHuman,
+  parseCliArgs,
+  runAnalysis,
+  runCli,
+  runDeepAnalysis,
+} from "../index.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +41,19 @@ function bubble(arr: number[]): number[] {
 const BROKEN_SRC = "function broken( { return; }";
 // This source has no functions — tests "empty units" path
 const NO_UNITS_SRC = "const x = 42;";
+
+function mockOkClient(overrides?: object): LLMClient {
+  return {
+    complete: vi.fn().mockResolvedValue(
+      JSON.stringify({
+        verifiedTimeComplexity: "O(n)",
+        verifiedSpaceComplexity: "O(1)",
+        rationale: "Single pass over the array.",
+        ...overrides,
+      }),
+    ),
+  };
+}
 
 let tmpDir: string;
 
@@ -102,6 +123,59 @@ describe("runAnalysis", () => {
     `;
     const r = runAnalysis(src, "rec.ts");
     expect(r.units[0]?.recursion?.kind).toBe("linear");
+  });
+});
+
+// ── runDeepAnalysis ───────────────────────────────────────────────────────────
+
+describe("runDeepAnalysis", () => {
+  it("degrades gracefully when no API key (llm_unavailable)", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    try {
+      const r = await runDeepAnalysis(SIMPLE_TS, "input.ts");
+      expect(r.lang).toBe("ts");
+      expect(r.units[0]?.llmStatus).toBe("llm_unavailable");
+      // static complexities preserved
+      expect(r.units[0]?.timeComplexity).toBe("O(n)");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("returns LLM-enriched result with injected client", async () => {
+    const r = await runDeepAnalysis(SIMPLE_TS, "input.ts", undefined, mockOkClient());
+    expect(r.units[0]?.llmStatus).toBe("ok");
+    expect(r.units[0]?.verifiedTimeComplexity).toBe("O(n)");
+    expect(r.units[0]?.llmRationale).toBe("Single pass over the array.");
+  });
+
+  it("uses LLM-verified complexities in timeComplexity/spaceComplexity fields", async () => {
+    const r = await runDeepAnalysis(
+      SIMPLE_TS,
+      "input.ts",
+      undefined,
+      mockOkClient({ verifiedTimeComplexity: "O(n log n)", verifiedSpaceComplexity: "O(n)" }),
+    );
+    expect(r.units[0]?.timeComplexity).toBe("O(n log n)");
+    expect(r.units[0]?.spaceComplexity).toBe("O(n)");
+  });
+
+  it("includes alternative when LLM returns one", async () => {
+    const client = mockOkClient({
+      alternative: {
+        code: "return arr.sort((a,b)=>a-b);",
+        timeComplexity: "O(n log n)",
+        spaceComplexity: "O(1)",
+        rationale: "Native sort is faster in practice.",
+      },
+    });
+    const r = await runDeepAnalysis(SIMPLE_TS, "input.ts", undefined, client);
+    expect(r.units[0]?.alternative?.timeComplexity).toBe("O(n log n)");
+  });
+
+  it("returns empty units for source with no functions", async () => {
+    const r = await runDeepAnalysis(NO_UNITS_SRC, "nounit.ts", undefined, mockOkClient());
+    expect(r.units).toHaveLength(0);
   });
 });
 
@@ -194,6 +268,59 @@ describe("formatHuman", () => {
     };
     const out = formatHuman(result);
     expect(out).toContain("Unknown call");
+  });
+
+  it("shows LLM rationale when llmStatus is ok", () => {
+    const result: AnalysisOutput = {
+      ...baseResult,
+      units: [
+        {
+          kind: "function",
+          name: "sum",
+          startLine: 1,
+          endLine: 5,
+          timeComplexity: "O(n)",
+          spaceComplexity: "O(1)",
+          confidence: "high",
+          uncertainNodes: [],
+          llmStatus: "ok",
+          llmRationale: "Confirmed by LLM analysis.",
+        },
+      ],
+    };
+    const out = formatHuman(result);
+    expect(out).toContain("LLM note");
+    expect(out).toContain("Confirmed by LLM analysis");
+  });
+
+  it("shows alternative when present", () => {
+    const result: AnalysisOutput = {
+      ...baseResult,
+      units: [
+        {
+          kind: "function",
+          name: "bubble",
+          startLine: 1,
+          endLine: 10,
+          timeComplexity: "O(n²)",
+          spaceComplexity: "O(1)",
+          confidence: "high",
+          uncertainNodes: [],
+          llmStatus: "ok",
+          alternative: {
+            code: "arr.sort()",
+            timeComplexity: "O(n log n)",
+            timeComplexityVerified: false,
+            spaceComplexity: "O(1)",
+            rationale: "Use native sort for better average performance.",
+          },
+        },
+      ],
+    };
+    const out = formatHuman(result);
+    expect(out).toContain("Alternative");
+    expect(out).toContain("O(n log n)");
+    expect(out).toContain("native sort");
   });
 });
 
@@ -329,5 +456,20 @@ describe("runCli", () => {
     const r = await runCli({ path: p, json: true, deep: false, lang: "js" });
     const data = JSON.parse(r.output);
     expect(data.lang).toBe("js");
+  });
+
+  it("--json with --deep includes deepEnabled flag", async () => {
+    const origKey = process.env.ANTHROPIC_API_KEY;
+    // biome-ignore lint/performance/noDelete: process.env requires delete to truly unset
+    delete process.env.ANTHROPIC_API_KEY;
+    try {
+      const p = writeTmp("deep2.ts", SIMPLE_TS);
+      const r = await runCli({ path: p, json: true, deep: true });
+      expect(r.exitCode).toBe(0);
+      const data = JSON.parse(r.output);
+      expect(data.deepEnabled).toBe(true);
+    } finally {
+      if (origKey !== undefined) process.env.ANTHROPIC_API_KEY = origKey;
+    }
   });
 });

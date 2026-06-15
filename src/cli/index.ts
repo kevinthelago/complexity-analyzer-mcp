@@ -5,6 +5,8 @@ import { analyzeUnit, parseCode } from "../engine/index.js";
 import type { RecursionInfo, UncertainNode } from "../engine/index.js";
 import { deepAnalyzeUnit } from "../llm/index.js";
 import type { LLMAlternative, LLMClient } from "../llm/index.js";
+import { measure } from "../runtime/index.js";
+import type { EmpiricalResult } from "../runtime/index.js";
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -12,6 +14,7 @@ export interface CliOptions {
   path: string;
   json: boolean;
   deep: boolean;
+  measure?: boolean;
   lang?: string;
 }
 
@@ -31,6 +34,10 @@ export interface UnitResult {
   verifiedSpaceComplexity?: string;
   llmRationale?: string;
   alternative?: LLMAlternative;
+  // Empirical measurement (--measure only)
+  empirical?: EmpiricalResult;
+  measureStatus?: "ok" | "skipped" | "error";
+  measureSkipReason?: string;
 }
 
 export interface AnalysisOutput {
@@ -149,6 +156,84 @@ export async function runDeepAnalysis(
   return { file: filePath, lang: detectedLang, units };
 }
 
+/** Default input generator: produces an array of n integers. */
+const DEFAULT_MEASURE_GENERATOR = "(n) => [Array.from({ length: n }, (_, i) => i)]";
+
+/**
+ * Static analysis + empirical measurement per unit.
+ * Only top-level `function` declarations are measured; other kinds are skipped
+ * because they cannot be dynamically imported by name from the file.
+ */
+export async function runMeasuredAnalysis(
+  source: string,
+  filePath: string,
+  lang?: string,
+): Promise<AnalysisOutput> {
+  const detectedLang = detectLang(filePath, lang);
+  const filename = parserFilename(filePath, detectedLang);
+  const parseResult = parseCode(source, filename);
+
+  if (!parseResult.success) {
+    return {
+      file: filePath,
+      lang: detectedLang,
+      parseError: parseResult.parseError?.message ?? "Parse failed",
+      units: [],
+    };
+  }
+
+  const units: UnitResult[] = await Promise.all(
+    parseResult.units.map(async (unit) => {
+      const staticResult = analyzeUnit(unit);
+      const entry: UnitResult = {
+        kind: unit.kind,
+        name: unit.name,
+        startLine: unit.startLine,
+        endLine: unit.endLine,
+        timeComplexity: staticResult.timeComplexity,
+        spaceComplexity: staticResult.spaceComplexity,
+        confidence: staticResult.confidence,
+        uncertainNodes: staticResult.uncertainNodes,
+      };
+      if (staticResult.recursion !== undefined) entry.recursion = staticResult.recursion;
+
+      if (unit.kind !== "function") {
+        entry.measureStatus = "skipped";
+        entry.measureSkipReason = "Measurement requires a top-level exported function";
+        return entry;
+      }
+
+      const outcome = await measure({
+        targetPath: filePath,
+        exportName: unit.name,
+        generatorCode: DEFAULT_MEASURE_GENERATOR,
+        staticTimeComplexity: staticResult.timeComplexity,
+      });
+
+      if (outcome.status === "ok" && outcome.empirical) {
+        entry.empirical = outcome.empirical;
+        entry.measureStatus = "ok";
+      } else if (
+        outcome.status === "error" &&
+        outcome.errorMessage?.toLowerCase().includes("is not a function")
+      ) {
+        entry.measureStatus = "skipped";
+        entry.measureSkipReason = "Function is not exported";
+      } else if (outcome.status === "error" || outcome.status === "timeout") {
+        entry.measureStatus = "error";
+        entry.measureSkipReason = outcome.errorMessage ?? "Measurement failed";
+      } else {
+        entry.measureStatus = "skipped";
+        entry.measureSkipReason = outcome.errorMessage ?? "Skipped";
+      }
+
+      return entry;
+    }),
+  );
+
+  return { file: filePath, lang: detectedLang, units };
+}
+
 // ── Formatting ────────────────────────────────────────────────────────────────
 
 const CONFIDENCE_BADGE: Record<string, string> = {
@@ -194,6 +279,16 @@ export function formatHuman(result: AnalysisOutput): string {
       }
     }
 
+    if (u.empirical) {
+      lines.push(
+        `  Empirical:  ${u.empirical.bigO}  R²=${u.empirical.rSquared.toFixed(3)}  [${u.empirical.confidence}]  reconciliation=${u.empirical.reconciliation}`,
+      );
+    } else if (u.measureStatus === "skipped") {
+      lines.push(`  Empirical:  skipped — ${u.measureSkipReason ?? "n/a"}`);
+    } else if (u.measureStatus === "error") {
+      lines.push(`  Empirical:  error — ${u.measureSkipReason ?? "measurement failed"}`);
+    }
+
     if (u.alternative) {
       lines.push("  Alternative:");
       lines.push(`    Time:    ${u.alternative.timeComplexity}`);
@@ -217,6 +312,7 @@ const USAGE = `Usage: complexity-analyzer analyze <path> [options]
 
 Options:
   --json        Emit raw JSON output
+  --measure     Run empirical runtime measurement (benchmarks exported functions)
   --deep        Run LLM-powered deep analysis (requires ANTHROPIC_API_KEY)
   --lang <ext>  Override language detection (ts | js)
   -h, --help    Show this help
@@ -226,17 +322,17 @@ export function parseCliArgs(argv: string[]): ParsedArgs {
   const args = argv.slice(2);
 
   if (args.length === 0 || args[0] === "-h" || args[0] === "--help") {
-    return { opts: { path: "", json: false, deep: false }, helpText: USAGE };
+    return { opts: { path: "", json: false, deep: false, measure: false }, helpText: USAGE };
   }
 
   if (args[0] !== "analyze") {
     return {
-      opts: { path: "", json: false, deep: false },
+      opts: { path: "", json: false, deep: false, measure: false },
       error: `Unknown command '${args[0]}'. Use: complexity-analyzer analyze <path>`,
     };
   }
 
-  const opts: CliOptions = { path: "", json: false, deep: false };
+  const opts: CliOptions = { path: "", json: false, deep: false, measure: false };
   let i = 1;
 
   while (i < args.length) {
@@ -245,6 +341,8 @@ export function parseCliArgs(argv: string[]): ParsedArgs {
       opts.json = true;
     } else if (arg === "--deep") {
       opts.deep = true;
+    } else if (arg === "--measure") {
+      opts.measure = true;
     } else if (arg === "--lang") {
       i++;
       const langVal = args[i];
@@ -272,7 +370,7 @@ export function parseCliArgs(argv: string[]): ParsedArgs {
 const GLOB_CHARS = /[*?{[]/;
 
 export async function runCli(opts: CliOptions): Promise<CliRunResult> {
-  const { path: rawPath, json, deep, lang } = opts;
+  const { path: rawPath, json, deep, measure: doMeasure = false, lang } = opts;
 
   if (GLOB_CHARS.test(rawPath)) {
     return {
@@ -312,7 +410,33 @@ export async function runCli(opts: CliOptions): Promise<CliRunResult> {
   let result: AnalysisOutput;
   let deepNotice = "";
 
-  if (deep) {
+  if (deep && doMeasure) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      deepNotice =
+        "\nNote: --deep requires ANTHROPIC_API_KEY. Showing static + empirical analysis only.\n";
+      result = await runMeasuredAnalysis(source, resolvedPath, lang);
+    } else {
+      // Deep + measure: run both passes
+      const [deepResult, measuredResult] = await Promise.all([
+        runDeepAnalysis(source, resolvedPath, lang),
+        runMeasuredAnalysis(source, resolvedPath, lang),
+      ]);
+      // Merge empirical fields from measuredResult into deepResult
+      result = {
+        ...deepResult,
+        units: deepResult.units.map((u, i) => {
+          const measured = measuredResult.units[i];
+          const entry: UnitResult = { ...u };
+          if (measured?.empirical !== undefined) entry.empirical = measured.empirical;
+          if (measured?.measureStatus !== undefined) entry.measureStatus = measured.measureStatus;
+          if (measured?.measureSkipReason !== undefined)
+            entry.measureSkipReason = measured.measureSkipReason;
+          return entry;
+        }),
+      };
+    }
+  } else if (deep) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       deepNotice = "\nNote: --deep requires ANTHROPIC_API_KEY. Showing static analysis only.\n";
@@ -320,6 +444,8 @@ export async function runCli(opts: CliOptions): Promise<CliRunResult> {
     } else {
       result = await runDeepAnalysis(source, resolvedPath, lang);
     }
+  } else if (doMeasure) {
+    result = await runMeasuredAnalysis(source, resolvedPath, lang);
   } else {
     result = runAnalysis(source, resolvedPath, lang);
   }
@@ -329,7 +455,10 @@ export async function runCli(opts: CliOptions): Promise<CliRunResult> {
   }
 
   if (json) {
-    const payload = deep ? { ...result, deepEnabled: true } : result;
+    const flags: Record<string, boolean> = {};
+    if (deep) flags.deepEnabled = true;
+    if (doMeasure) flags.measureEnabled = true;
+    const payload = Object.keys(flags).length > 0 ? { ...result, ...flags } : result;
     const output = `${JSON.stringify(payload, null, 2)}\n`;
     return { output, exitCode: result.parseError ? 1 : 0 };
   }

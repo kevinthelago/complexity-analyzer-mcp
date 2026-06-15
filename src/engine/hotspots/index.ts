@@ -11,9 +11,9 @@ import { lookupCost } from "../cost-rules/index.js";
 import { nodePosition } from "../parser/index.js";
 import type { AnalyzableUnit } from "../parser/types.js";
 import type { StaticComplexityResult } from "../static/types.js";
-import type { Hotspot } from "./types.js";
+import type { Hotspot, HotspotKind } from "./types.js";
 
-export type { Hotspot } from "./types.js";
+export type { Hotspot, HotspotKind } from "./types.js";
 
 const ORDER: Record<string, number> = {
   "O(1)": 1,
@@ -152,12 +152,14 @@ export function findHotspots(
 
     const pos = nodePosition(child);
     const depth = maxLoopDepth(child);
+    const kind: HotspotKind = depth > 1 ? "loop-nest" : "loop-nest";
     const reason =
       depth > 1
         ? `${depth}-level nested loop contributes ${cost}`
         : `${loopKindLabel(child)} contributes ${cost}`;
 
     hotspots.push({
+      kind,
       line: pos.line,
       col: pos.col,
       snippet: child.getText().split("\n")[0]?.slice(0, 120) ?? "",
@@ -182,6 +184,7 @@ export function findHotspots(
 
     const pos = nodePosition(child);
     hotspots.push({
+      kind: "costly-call",
       line: pos.line,
       col: pos.col,
       snippet: child.getText().slice(0, 120),
@@ -196,6 +199,45 @@ export function findHotspots(
     const oa = ORDER[a.bigO] ?? 3;
     const ob = ORDER[b.bigO] ?? 3;
     if (ob !== oa) return ob - oa;
+    if (a.line !== b.line) return a.line - b.line;
+    return a.col - b.col;
+  });
+}
+
+export interface GlobalHotspot extends Hotspot {
+  unitName: string;
+  filename?: string;
+}
+
+/**
+ * Aggregate hotspots from multiple analysis results into a single globally
+ * ranked list (worst-first, ties broken by unitName then line then col).
+ *
+ * Accepts an array of { units, filename? } pairs where each unit carries a
+ * populated `hotspots` array (as produced by the pipeline stage).
+ */
+export function rankHotspotsGlobally(
+  results: Array<{ units: Array<{ name: string; hotspots: Hotspot[] }>; filename?: string }>,
+): GlobalHotspot[] {
+  const all: GlobalHotspot[] = [];
+
+  for (const { units, filename } of results) {
+    for (const unit of units) {
+      for (const hotspot of unit.hotspots) {
+        const entry: GlobalHotspot = { ...hotspot, unitName: unit.name };
+        if (filename !== undefined) entry.filename = filename;
+        all.push(entry);
+      }
+    }
+  }
+
+  return all.sort((a, b) => {
+    const oa = ORDER[a.bigO] ?? 3;
+    const ob = ORDER[b.bigO] ?? 3;
+    if (ob !== oa) return ob - oa;
+    const ua = a.unitName.toLowerCase();
+    const ub = b.unitName.toLowerCase();
+    if (ua !== ub) return ua < ub ? -1 : 1;
     if (a.line !== b.line) return a.line - b.line;
     return a.col - b.col;
   });

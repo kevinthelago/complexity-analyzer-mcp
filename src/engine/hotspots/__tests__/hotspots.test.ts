@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseCode } from "../../parser/index.js";
 import { analyzeUnit } from "../../static/index.js";
-import { findHotspots } from "../index.js";
+import { findHotspots, rankHotspotsGlobally } from "../index.js";
 
 function hotspots(src: string) {
   const result = parseCode(src, "input.ts");
@@ -29,7 +29,7 @@ describe("findHotspots — empty cases", () => {
 });
 
 describe("findHotspots — loop hotspots", () => {
-  it("reports a single for-of loop as O(n) hotspot", () => {
+  it("reports a single for-of loop as O(n) hotspot with kind=loop-nest", () => {
     const hs = hotspots(`
       function sum(arr: number[]): number {
         let s = 0;
@@ -39,6 +39,7 @@ describe("findHotspots — loop hotspots", () => {
     `);
     expect(hs.length).toBeGreaterThanOrEqual(1);
     expect(hs[0]?.bigO).toBe("O(n)");
+    expect(hs[0]?.kind).toBe("loop-nest");
   });
 
   it("reports outer loop as O(n²) hotspot for nested loops", () => {
@@ -74,7 +75,7 @@ describe("findHotspots — loop hotspots", () => {
 });
 
 describe("findHotspots — call expression hotspots", () => {
-  it("reports Array.sort() as O(n log n) hotspot", () => {
+  it("reports Array.sort() as O(n log n) hotspot with kind=costly-call", () => {
     const hs = hotspots(`
       function sortArr(arr: number[]): number[] {
         return arr.sort((a, b) => a - b);
@@ -83,6 +84,7 @@ describe("findHotspots — call expression hotspots", () => {
     const sortHotspot = hs.find((h) => h.bigO === "O(n log n)");
     expect(sortHotspot).toBeDefined();
     expect(sortHotspot?.reason).toContain(".sort()");
+    expect(sortHotspot?.kind).toBe("costly-call");
   });
 
   it("reports Array.includes() as O(n) hotspot when dominant is O(n)", () => {
@@ -141,5 +143,48 @@ describe("findHotspots — uncertain flagging", () => {
       }
     `);
     expect(Array.isArray(hs)).toBe(true);
+  });
+});
+
+describe("rankHotspotsGlobally", () => {
+  it("combines hotspots from multiple units and ranks worst-first", () => {
+    const src1 = "function linear(arr: number[]) { for (const x of arr) x; }";
+    const src2 = `
+      function quadratic(arr: number[]) {
+        for (let i = 0; i < arr.length; i++)
+          for (let j = 0; j < arr.length; j++) void (i + j);
+      }
+    `;
+
+    function unitHotspots(src: string) {
+      const parsed = parseCode(src, "input.ts");
+      if (!parsed.success || parsed.units.length === 0) return [];
+      const unit = parsed.units[0];
+      if (!unit) return [];
+      const staticResult = analyzeUnit(unit);
+      return { name: unit.name, hotspots: findHotspots(unit, staticResult) };
+    }
+
+    const u1 = unitHotspots(src1);
+    const u2 = unitHotspots(src2);
+    if (!u1 || !u2) throw new Error("units missing");
+
+    const global = rankHotspotsGlobally([
+      { units: [u1], filename: "file1.ts" },
+      { units: [u2], filename: "file2.ts" },
+    ]);
+
+    // quadratic's O(n²) hotspot should rank before linear's O(n) hotspot
+    expect(global.length).toBeGreaterThanOrEqual(2);
+    const firstBigO = global[0]?.bigO;
+    expect(firstBigO).toBe("O(n²)");
+    // Each entry carries unitName and filename
+    expect(global[0]?.unitName).toBe("quadratic");
+    expect(global[0]?.filename).toBe("file2.ts");
+  });
+
+  it("returns empty array when no hotspots exist", () => {
+    const global = rankHotspotsGlobally([{ units: [{ name: "f", hotspots: [] }] }]);
+    expect(global).toHaveLength(0);
   });
 });

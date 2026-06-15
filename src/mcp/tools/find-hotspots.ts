@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { basename } from "node:path";
 import { z } from "zod";
+import { resolveInput } from "../../engine/input/index.js";
 import { parseCode } from "../../engine/parser/index.js";
 import { analyzeUnit } from "../../engine/static/index.js";
 import type { ToolArgs, ToolDefinition } from "../types.js";
@@ -25,13 +24,19 @@ function severityOf(bigO: string): number {
   return SEVERITY[bigO] ?? 3;
 }
 
+/** True when `p` contains glob metacharacters and should be treated as a pattern. */
+function isGlobPattern(p: string): boolean {
+  return /[*?{}[\]]/.test(p);
+}
+
 const inputShape = {
   code: z.string().optional().describe("TypeScript or JavaScript source code to analyse."),
   path: z
     .string()
     .optional()
     .describe(
-      "Absolute path to a TypeScript or JavaScript file to analyse. " +
+      "Absolute path to a TypeScript or JavaScript file, or a glob pattern " +
+        "(e.g. 'src/**/*.ts') to analyse multiple files. " +
         "Ignored when `code` is also provided.",
     ),
   filename: z
@@ -39,7 +44,7 @@ const inputShape = {
     .optional()
     .describe(
       "Optional filename for language detection (e.g. 'input.ts'). " +
-        "Defaults to the basename of `path` when path is used, otherwise 'input.ts'.",
+        "Only used when `code` is provided; ignored for `path`.",
     ),
   topN: z
     .number()
@@ -52,108 +57,113 @@ const inputShape = {
     ),
 };
 
-function execute(args: ToolArgs<typeof inputShape>) {
+async function execute(args: ToolArgs<typeof inputShape>) {
   const topN = args.topN ?? DEFAULT_TOP_N;
 
-  let source: string;
-  let filename: string;
+  if (!args.code && !args.path) {
+    return {
+      isError: true as const,
+      content: [
+        {
+          type: "text" as const,
+          text: "find_hotspots requires either an inline `code` string or a `path` to a file or glob pattern.",
+        },
+      ],
+    };
+  }
 
+  // Resolve input sources via the input adapter.
+  // args.path is defined here (early-return above guards !args.code && !args.path)
+  const pathArg = args.path as string;
+  let resolveSpec: Parameters<typeof resolveInput>[0];
   if (args.code) {
-    // Inline code takes precedence over path.
-    source = args.code;
-    filename = args.filename ?? "input.ts";
-  } else if (args.path) {
-    try {
-      source = readFileSync(args.path, "utf8");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return {
-        isError: true as const,
-        content: [{ type: "text" as const, text: `Failed to read file: ${msg}` }],
-      };
-    }
-    filename = args.filename ?? basename(args.path);
+    resolveSpec = args.filename
+      ? { code: args.code, filename: args.filename }
+      : { code: args.code };
+  } else if (isGlobPattern(pathArg)) {
+    resolveSpec = { glob: pathArg };
   } else {
+    resolveSpec = { path: pathArg };
+  }
+
+  const resolved = await resolveInput(resolveSpec, MAX_SOURCE_BYTES);
+
+  if (resolved.kind === "error") {
     return {
       isError: true as const,
-      content: [
-        {
-          type: "text" as const,
-          text: "find_hotspots requires either an inline `code` string or a `path` to a file on disk.",
-        },
-      ],
+      content: [{ type: "text" as const, text: resolved.message }],
     };
   }
 
-  if (Buffer.byteLength(source, "utf8") > MAX_SOURCE_BYTES) {
-    return {
-      isError: true as const,
-      content: [
-        {
-          type: "text" as const,
-          text: `Error: input exceeds the ${MAX_SOURCE_BYTES / 1024} KB limit`,
-        },
-      ],
-    };
-  }
-
-  const parsed = parseCode(source, filename);
-
-  if (!parsed.success) {
-    return {
-      isError: true as const,
-      content: [
-        {
-          type: "text" as const,
-          text: `Parse error: ${parsed.parseError?.message ?? "unknown error"}`,
-        },
-      ],
-    };
-  }
-
-  if (parsed.units.length === 0) {
+  if (resolved.entries.length === 0) {
     return {
       content: [
         {
           type: "text" as const,
-          text: JSON.stringify(
-            { hotspots: [], message: "No analyzable functions or methods found." },
-            null,
-            2,
-          ),
+          text: JSON.stringify({ hotspots: [], message: "No matching files found." }, null, 2),
         },
       ],
     };
   }
 
-  const scored = parsed.units.map((unit) => {
-    const r = analyzeUnit(unit);
-    const timeSeverity = severityOf(r.timeComplexity);
-    const spaceSeverity = severityOf(r.spaceComplexity);
-    const confidencePenalty = r.confidence === "high" ? 0 : r.confidence === "medium" ? -0.1 : -0.2;
-    const score = timeSeverity + spaceSeverity * 0.5 + confidencePenalty;
-    return { unit, result: r, score };
-  });
+  // Analyse all source entries and collect scored units across all files.
+  type ScoredUnit = {
+    name: string;
+    kind: string;
+    startLine: number;
+    endLine: number;
+    timeComplexity: string;
+    spaceComplexity: string;
+    confidence: string;
+    recursion?: unknown;
+    uncertainNodes: unknown[];
+    score: number;
+    filename?: string;
+  };
 
-  scored.sort((a, b) => b.score - a.score || a.unit.startLine - b.unit.startLine);
+  const allScored: ScoredUnit[] = [];
+  let totalFunctions = 0;
+  const multiFile = resolved.entries.length > 1;
 
-  const hotspots = scored.slice(0, topN).map(({ unit, result, score: _score }) => ({
-    name: unit.name,
-    kind: unit.kind,
-    startLine: unit.startLine,
-    endLine: unit.endLine,
-    timeComplexity: result.timeComplexity,
-    spaceComplexity: result.spaceComplexity,
-    confidence: result.confidence,
-    ...(result.recursion !== undefined ? { recursion: result.recursion } : {}),
-    uncertainNodes: result.uncertainNodes,
-  }));
+  for (const entry of resolved.entries) {
+    const parsed = parseCode(entry.source, entry.filename);
+    if (!parsed.success) continue;
+
+    totalFunctions += parsed.units.length;
+
+    for (const unit of parsed.units) {
+      const r = analyzeUnit(unit);
+      const timeSeverity = severityOf(r.timeComplexity);
+      const spaceSeverity = severityOf(r.spaceComplexity);
+      const confidencePenalty =
+        r.confidence === "high" ? 0 : r.confidence === "medium" ? -0.1 : -0.2;
+      const score = timeSeverity + spaceSeverity * 0.5 + confidencePenalty;
+
+      allScored.push({
+        name: unit.name,
+        kind: unit.kind,
+        startLine: unit.startLine,
+        endLine: unit.endLine,
+        timeComplexity: r.timeComplexity,
+        spaceComplexity: r.spaceComplexity,
+        confidence: r.confidence,
+        ...(r.recursion !== undefined ? { recursion: r.recursion } : {}),
+        uncertainNodes: r.uncertainNodes,
+        score,
+        ...(multiFile ? { filename: entry.filename } : {}),
+      });
+    }
+  }
+
+  allScored.sort((a, b) => b.score - a.score || a.startLine - b.startLine);
+
+  const hotspots = allScored.slice(0, topN).map(({ score: _score, ...rest }) => rest);
 
   return {
     content: [
       {
         type: "text" as const,
-        text: JSON.stringify({ hotspots, totalFunctions: parsed.units.length }, null, 2),
+        text: JSON.stringify({ hotspots, totalFunctions }, null, 2),
       },
     ],
   };
@@ -163,9 +173,11 @@ const tool: ToolDefinition<typeof inputShape> = {
   name: "find_hotspots",
   description:
     "Identify the most algorithmically expensive functions in TypeScript or JavaScript code. " +
-    "Accepts either inline `code` or a `path` to a file on disk (code takes precedence when both are given). " +
-    "Returns up to topN functions ranked by time complexity severity (worst first), " +
-    "with space complexity, confidence, and recursion info where detected.",
+    "Accepts inline `code`, a `path` to a single file, or a glob pattern (e.g. 'src/**/*.ts') " +
+    "for multi-file analysis (code takes precedence when both are given). " +
+    "Returns up to topN functions ranked by time complexity severity (worst first) " +
+    "with space complexity, confidence, and recursion info. " +
+    "For multi-file runs, each result includes the source filename.",
   inputShape,
   execute,
 };

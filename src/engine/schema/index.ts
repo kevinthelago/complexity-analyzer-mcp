@@ -3,6 +3,7 @@ import { z } from "zod";
 // ── Leaf schemas ─────────────────────────────────────────────────────────────
 
 export const HotspotSchema = z.object({
+  kind: z.enum(["loop-nest", "costly-call", "recursion", "allocation", "unknown"]),
   line: z.number().int().positive(),
   col: z.number().int().positive(),
   snippet: z.string(),

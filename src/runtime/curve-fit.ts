@@ -27,8 +27,6 @@ function linearRegression(xs: number[], ys: number[]): RegressionResult {
 
   const denom = n * sumX2 - sumX * sumX;
   if (denom === 0) {
-    // All xs are identical — can only fit a constant (intercept = mean(ys)).
-    // R² = 0 unless ys are also constant, in which case R² = 1.
     const yMean = sumY / n;
     let ssTot = 0;
     for (let i = 0; i < n; i++) ssTot += ((ys[i] ?? 0) - yMean) ** 2;
@@ -54,9 +52,109 @@ function linearRegression(xs: number[], ys: number[]): RegressionResult {
 
 // ── Multi-model Big-O fitting ─────────────────────────────────────────────────
 
+export interface FitResult {
+  bigO: BigO;
+  rSquared: number;
+}
+
+/**
+ * Fit several Big-O growth models against (ns, times) and return the best fit.
+ *
+ * Primary strategy: log-log regression — regress log(time) on log(n) to
+ * estimate the power-law exponent (slope). This is robust to per-call
+ * overhead inflating small-n timings, which throws off direct feature
+ * regression. Slope thresholds:
+ *   < 0.3  → O(1)
+ *   0.3–0.65 → O(log n)
+ *   0.65–1.5 → O(n) / O(n log n) — resolved by secondary feature check
+ *   1.5–2.5 → O(n²)
+ *   > 2.5  → O(n³)
+ *
+ * When only 2 reliable timing points exist (sub-microsecond floor filters
+ * small n on fast machines), the slope is derived from the outermost pair
+ * — still accurate for large-n dominated growth.
+ *
+ * Fallback: multi-model feature regression when all timings are below the
+ * measurement floor.
+ */
+export function fitBigO(ns: number[], times: number[]): FitResult {
+  if (ns.length < 3) return { bigO: "unknown", rSquared: 0 };
+
+  // Guard against constant times (no growth signal).
+  const maxTime = Math.max(...times);
+  const minTime = Math.min(...times);
+  if (maxTime === 0 || (maxTime - minTime) / maxTime < 0.05) {
+    return { bigO: "O(1)", rSquared: 1 };
+  }
+
+  // Collect points where timing is above the JIT/overhead floor.
+  // At small n the function completes far faster than V8's JIT startup and
+  // per-call overhead (~0.02–0.05 ms), so the measured time is essentially
+  // constant regardless of n. Including those flat points drags the log-log
+  // slope toward 0 and produces systematic misclassification. Filter them
+  // out; the remaining large-n points give a clean growth signal.
+  const MIN_MS = 0.05;
+  const valid = ns
+    .map((n, i) => ({ n, t: times[i] ?? 0 }))
+    .filter(({ n, t }) => n > 0 && t >= MIN_MS);
+
+  if (valid.length >= 2) {
+    const first = valid[0]!;
+    const last = valid[valid.length - 1]!;
+
+    let slope: number;
+    let rSquared: number;
+
+    const logNs = valid.map(({ n }) => Math.log(n));
+    const logTs = valid.map(({ t }) => Math.log(t));
+
+    if (valid.length >= 3) {
+      // Full OLS regression in log-log space.
+      ({ slope, rSquared } = linearRegression(logNs, logTs));
+    } else {
+      // Only 2 reliable points — compute the exact pairwise exponent.
+      // With 2 points R² is trivially 1 (perfect 2-point fit), so use
+      // a conservative 0.85 to signal medium confidence to callers.
+      slope =
+        (Math.log(last.t) - Math.log(first.t)) /
+        (Math.log(last.n) - Math.log(first.n));
+      rSquared = 0.85;
+    }
+
+    let bigO: BigO;
+    if (slope < 0.3) {
+      bigO = "O(1)";
+    } else if (slope < 0.65) {
+      bigO = "O(log n)";
+    } else if (slope < 1.5) {
+      // Log-log slope ≈ 1 for both O(n) and O(n log n).
+      // Use a secondary R² comparison on raw features to distinguish them.
+      const rawNs = valid.map(({ n }) => n);
+      const rawTs = valid.map(({ t }) => t);
+      const r2N = linearRegression(rawNs, rawTs).rSquared;
+      const r2NLogN = linearRegression(
+        rawNs.map((n) => n * Math.log(n)),
+        rawTs,
+      ).rSquared;
+      bigO = r2NLogN > r2N + 0.02 ? "O(n log n)" : "O(n)";
+    } else if (slope < 2.5) {
+      bigO = "O(n²)";
+    } else {
+      bigO = "O(n³)";
+    }
+
+    return { bigO, rSquared: Math.max(0, rSquared) };
+  }
+
+  // Fallback: all timings are below the resolution floor — direct feature
+  // regression against raw times is the only option.
+  return fitBigOByFeature(ns, times);
+}
+
+// ── Feature-based fallback ────────────────────────────────────────────────────
+
 interface Model {
   bigO: BigO;
-  /** Transform n → feature value for linear regression against time. */
   transform: (n: number) => number;
 }
 
@@ -69,38 +167,11 @@ const MODELS: Model[] = [
   { bigO: "O(n³)", transform: (n) => n * n * n },
 ];
 
-export interface FitResult {
-  bigO: BigO;
-  rSquared: number;
-}
-
-/**
- * Fit several Big-O growth models against (ns, times) and return the best fit.
- *
- * For each model f(n), we regress time = a·f(n) + b and take R² as the fit
- * quality. The model with the highest R² wins; ties break in favour of simpler
- * models (list order above).
- *
- * Requires at least 3 data points; returns { bigO: "unknown", rSquared: 0 }
- * if there are fewer or if all points have identical time (no signal).
- */
-export function fitBigO(ns: number[], times: number[]): FitResult {
-  if (ns.length < 3) return { bigO: "unknown", rSquared: 0 };
-
-  // Guard against all-zero or constant times (no growth signal).
-  // Use a relative threshold so small measurement noise on flat data still
-  // reads as O(1) even if maxTime - minTime is not exactly zero.
-  const maxTime = Math.max(...times);
-  const minTime = Math.min(...times);
-  if (maxTime === 0 || (maxTime - minTime) / maxTime < 0.05) {
-    return { bigO: "O(1)", rSquared: 1 };
-  }
-
+function fitBigOByFeature(ns: number[], times: number[]): FitResult {
   let best: FitResult = { bigO: "O(n)", rSquared: Number.NEGATIVE_INFINITY };
 
   for (const { bigO, transform } of MODELS) {
     const xs = ns.map(transform);
-    // Skip degenerate features (e.g. log(0) = -Infinity)
     if (xs.some((x) => !Number.isFinite(x))) continue;
 
     const { rSquared } = linearRegression(xs, times);

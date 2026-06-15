@@ -2,22 +2,24 @@ import { writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { AnalysisResult } from "../../../engine/schema/index.js";
 import tool from "../analyze-complexity.js";
 
 describe("analyze_complexity tool", () => {
-  it("returns complexity data for a simple function", () => {
+  it("returns a full AnalysisResult for a simple function", () => {
     const result = tool.execute({
       code: "function sum(a: number, b: number): number { return a + b; }",
     });
     expect(result.isError).toBeFalsy();
-    const text = result.content[0]?.text ?? "{}";
-    const data = JSON.parse(text) as {
-      units: Array<{ name: string; timeComplexity: string; spaceComplexity: string }>;
-    };
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as AnalysisResult;
     expect(data.units).toHaveLength(1);
     expect(data.units[0]?.name).toBe("sum");
     expect(typeof data.units[0]?.timeComplexity).toBe("string");
     expect(typeof data.units[0]?.spaceComplexity).toBe("string");
+    expect(data.lang).toBe("typescript");
+    expect(typeof data.kbVersion).toBe("string");
+    expect(Array.isArray(data.analyzedBy)).toBe(true);
+    expect(Array.isArray(data.notes)).toBe(true);
   });
 
   it("returns multiple units for multi-function input", () => {
@@ -29,7 +31,7 @@ describe("analyze_complexity tool", () => {
       filename: "multi.ts",
     });
     expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]?.text ?? "{}") as { units: unknown[] };
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as AnalysisResult;
     expect(data.units.length).toBeGreaterThanOrEqual(2);
   });
 
@@ -43,9 +45,7 @@ describe("analyze_complexity tool", () => {
       `,
     });
     expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]?.text ?? "{}") as {
-      units: Array<{ recursion?: { kind: string } }>;
-    };
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as AnalysisResult;
     expect(data.units[0]?.recursion).toBeDefined();
     expect(data.units[0]?.recursion?.kind).toBe("exponential");
   });
@@ -53,8 +53,9 @@ describe("analyze_complexity tool", () => {
   it("returns empty units for code with no functions", () => {
     const result = tool.execute({ code: "const x = 42;" });
     expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]?.text ?? "{}") as { units: unknown[] };
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as AnalysisResult;
     expect(data.units).toHaveLength(0);
+    expect(data.notes).toContain("no_analyzable_units");
   });
 
   it("returns isError for oversized input", () => {
@@ -64,12 +65,14 @@ describe("analyze_complexity tool", () => {
     expect(result.content[0]?.text).toMatch(/limit/i);
   });
 
-  it("uses provided filename without error", () => {
+  it("uses provided filename for language detection", () => {
     const result = tool.execute({
       code: "function hello() { return 42; }",
       filename: "myfile.js",
     });
     expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as AnalysisResult;
+    expect(data.lang).toBe("javascript");
   });
 
   it("reads from path when code is omitted", () => {
@@ -77,7 +80,7 @@ describe("analyze_complexity tool", () => {
     writeFileSync(tmp, "function greet(name: string) { return name; }");
     const result = tool.execute({ path: tmp });
     expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]?.text ?? "{}") as { units: Array<{ name: string }> };
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as AnalysisResult;
     expect(data.units[0]?.name).toBe("greet");
   });
 
@@ -87,7 +90,7 @@ describe("analyze_complexity tool", () => {
       path: "/nonexistent/file.ts",
     });
     expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]?.text ?? "{}") as { units: Array<{ name: string }> };
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as AnalysisResult;
     expect(data.units[0]?.name).toBe("inline");
   });
 
@@ -101,5 +104,21 @@ describe("analyze_complexity tool", () => {
     const result = tool.execute({});
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toMatch(/code or path/i);
+  });
+
+  it("includes hotspots in unit results for looping code", () => {
+    const result = tool.execute({
+      code: `
+        function scan(arr: number[]): number {
+          let s = 0;
+          for (const x of arr) s += x;
+          return s;
+        }
+      `,
+    });
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as AnalysisResult;
+    expect(data.units[0]?.hotspots).toBeDefined();
+    expect(data.units[0]?.hotspots.length).toBeGreaterThan(0);
   });
 });

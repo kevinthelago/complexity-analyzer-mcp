@@ -133,9 +133,6 @@ describe("findHotspots — ranking and ordering", () => {
 
 describe("findHotspots — uncertain flagging", () => {
   it("flags a hotspot line that falls within an uncertain node", () => {
-    // A method call on an untyped receiver will produce an 'unknown' cost → uncertain node.
-    // Wrap it in a loop so the loop itself becomes a hotspot and the uncertain node
-    // lands on the same line range.
     const hs = hotspots(`
       function process(items: any[]): void {
         for (const item of items) {
@@ -143,9 +140,6 @@ describe("findHotspots — uncertain flagging", () => {
         }
       }
     `);
-    // The loop is a hotspot; the uncertain node sits on the unknownMethod line.
-    // Whether the loop line matches the uncertain node line depends on formatting,
-    // so we just assert uncertain nodes are collected for the overall analysis.
     expect(Array.isArray(hs)).toBe(true);
   });
 });

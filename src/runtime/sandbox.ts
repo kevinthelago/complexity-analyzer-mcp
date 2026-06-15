@@ -1,6 +1,6 @@
-import { Worker } from "node:worker_threads";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
 import type { WorkerInput, WorkerOutput } from "./types.js";
 
 // Resolve the worker path: .ts when running from source (tests/dev), .js in compiled output.

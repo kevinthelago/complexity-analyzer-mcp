@@ -7,7 +7,7 @@ function syntheticData(
   sizes = [10, 100, 1_000, 10_000, 100_000],
   noiseFactor = 0.02,
 ): { ns: number[]; times: number[] } {
-  const base = transform(sizes[0]!);
+  const base = transform(sizes[0] ?? 10);
   const scale = 1e-6 / base; // normalise so times are in microsecond range
   // Add a small constant overhead and proportional noise
   const times = sizes.map((n) => {

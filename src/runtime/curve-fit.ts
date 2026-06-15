@@ -17,10 +17,12 @@ function linearRegression(xs: number[], ys: number[]): RegressionResult {
   let sumXY = 0;
   let sumX2 = 0;
   for (let i = 0; i < n; i++) {
-    sumX += xs[i]!;
-    sumY += ys[i]!;
-    sumXY += xs[i]! * ys[i]!;
-    sumX2 += xs[i]! * xs[i]!;
+    const x = xs[i] ?? 0;
+    const y = ys[i] ?? 0;
+    sumX += x;
+    sumY += y;
+    sumXY += x * y;
+    sumX2 += x * x;
   }
 
   const denom = n * sumX2 - sumX * sumX;
@@ -33,8 +35,10 @@ function linearRegression(xs: number[], ys: number[]): RegressionResult {
   let ssTot = 0;
   let ssRes = 0;
   for (let i = 0; i < n; i++) {
-    ssTot += (ys[i]! - yMean) ** 2;
-    ssRes += (ys[i]! - (slope * xs[i]! + intercept)) ** 2;
+    const y = ys[i] ?? 0;
+    const x = xs[i] ?? 0;
+    ssTot += (y - yMean) ** 2;
+    ssRes += (y - (slope * x + intercept)) ** 2;
   }
 
   const rSquared = ssTot === 0 ? 1 : Math.max(0, 1 - ssRes / ssTot);
@@ -83,12 +87,12 @@ export function fitBigO(ns: number[], times: number[]): FitResult {
     return { bigO: "O(1)", rSquared: 1 };
   }
 
-  let best: FitResult = { bigO: "O(n)", rSquared: -Infinity };
+  let best: FitResult = { bigO: "O(n)", rSquared: Number.NEGATIVE_INFINITY };
 
   for (const { bigO, transform } of MODELS) {
     const xs = ns.map(transform);
     // Skip degenerate features (e.g. log(0) = -Infinity)
-    if (xs.some((x) => !isFinite(x))) continue;
+    if (xs.some((x) => !Number.isFinite(x))) continue;
 
     const { rSquared } = linearRegression(xs, times);
     if (rSquared > best.rSquared) {

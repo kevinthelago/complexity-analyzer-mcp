@@ -1,3 +1,4 @@
+import { performance } from "node:perf_hooks";
 /**
  * Worker thread: imports the target function, runs warmup + timed trials
  * for each requested input size, and posts back the median times.
@@ -5,9 +6,8 @@
  * This file is loaded as a separate worker_thread entry — never import it
  * directly from the main process.
  */
-import { workerData, parentPort } from "node:worker_threads";
-import { performance } from "node:perf_hooks";
-import type { WorkerInput, WorkerOutput, SizeResult } from "./types.js";
+import { parentPort, workerData } from "node:worker_threads";
+import type { SizeResult, WorkerInput, WorkerOutput } from "./types.js";
 
 const { targetPath, exportName, generatorCode, inputSizes, warmup, trials } =
   workerData as WorkerInput;
@@ -21,7 +21,7 @@ function toArgs(raw: unknown): unknown[] {
 
 function median(arr: number[]): number {
   const sorted = [...arr].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)]!;
+  return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 
 async function run(): Promise<void> {

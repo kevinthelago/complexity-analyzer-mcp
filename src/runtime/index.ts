@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { runInSandbox } from "./sandbox.js";
 import { fitBigO } from "./curve-fit.js";
+import { runInSandbox } from "./sandbox.js";
 import type { BigO, Confidence, EmpiricalResult, MeasureOptions, MeasureOutcome } from "./types.js";
 
 export type { BigO, Confidence, EmpiricalResult, MeasureOptions, MeasureOutcome } from "./types.js";

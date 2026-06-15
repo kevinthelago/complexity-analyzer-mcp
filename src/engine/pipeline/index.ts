@@ -1,81 +1,124 @@
 import { KB_VERSION } from "../cost-rules/index.js";
 import { findHotspots } from "../hotspots/index.js";
 import { parseCode } from "../parser/index.js";
-import type { AnalyzableUnit } from "../parser/types.js";
-import type { AnalysisResult, UnitResult } from "../schema/index.js";
-import { AnalysisResultSchema } from "../schema/index.js";
+import { AnalysisResultSchema, type AnalysisResult, type UnitResult } from "../schema/index.js";
 import { analyzeUnit } from "../static/index.js";
 
 export type { AnalysisResult, UnitResult } from "../schema/index.js";
 
-export interface AnalyzeOptions {
-  /** File name hint used for language detection and ts-morph (default: "input.ts"). */
+// ── Stage flags ───────────────────────────────────────────────────────────────
+
+export type StageId = "hotspots" | "suggestions";
+
+export interface PipelineOptions {
   filename?: string;
-  /** Override detected language ("ts" | "js"). */
-  lang?: string;
   /**
-   * Which engine stages to run.
-   * - "static": time/space/confidence (always run)
-   * - "hotspots": identify dominant-cost constructs (default on)
-   * Omit or pass undefined to run all default stages.
+   * Which optional stages to include. Defaults to ["hotspots"].
+   * "suggestions" is reserved for the static suggestion generator (issue #9);
+   * when requested but not yet available it is silently skipped and a note added.
    */
-  stages?: Array<"static" | "hotspots">;
+  stages?: ReadonlyArray<StageId>;
+  /**
+   * Optional LLM reasoner injection point. When provided it is called per-unit
+   * after the static pass; its suggestions are merged into the unit result.
+   */
+  llmReasoner?: (unit: UnitResult) => Promise<string[]>;
 }
 
-function detectLang(filename: string, override?: string): string {
-  if (override) return override;
-  if (filename.endsWith(".js") || filename.endsWith(".jsx")) return "js";
-  if (filename.endsWith(".ts") || filename.endsWith(".tsx")) return "ts";
-  return "ts";
-}
+const DEFAULT_STAGES: ReadonlyArray<StageId> = ["hotspots"];
 
-function buildUnitResult(unit: AnalyzableUnit, stages: Array<"static" | "hotspots">): UnitResult {
-  const staticResult = analyzeUnit(unit);
-  const hotspots = stages.includes("hotspots") ? findHotspots(unit, staticResult) : [];
-
-  return {
-    name: unit.name,
-    kind: unit.kind,
-    startLine: unit.startLine,
-    endLine: unit.endLine,
-    timeComplexity: staticResult.timeComplexity,
-    spaceComplexity: staticResult.spaceComplexity,
-    confidence: staticResult.confidence,
-    uncertainNodes: staticResult.uncertainNodes,
-    recursion: staticResult.recursion,
-    hotspots,
-    analyzedBy: "static",
-  };
-}
+// ── Main entry point ──────────────────────────────────────────────────────────
 
 /**
- * Analyse TypeScript/JavaScript source through the engine pipeline.
+ * Run the full (or partial) analysis pipeline on TypeScript/JavaScript source.
  *
- * Pure function — identical input always produces identical output.
- * Never throws; parse errors and empty-unit cases return well-formed results.
+ * Stages always run: parse → static
+ * Optional stages (controlled via options.stages): hotspots
+ * Reserved stage: suggestions (no-op until issue #9 lands)
+ *
+ * Returns a validated AnalysisResult — never throws on malformed source.
  */
-export function analyze(source: string, options: AnalyzeOptions = {}): AnalysisResult {
-  const filename = options.filename ?? "input.ts";
-  const lang = detectLang(filename, options.lang);
-  const stages: Array<"static" | "hotspots"> = options.stages ?? ["static", "hotspots"];
+export function runPipeline(source: string, options?: PipelineOptions): AnalysisResult {
+  const filename = options?.filename ?? "input.ts";
+  const stages = options?.stages ?? DEFAULT_STAGES;
+  const runHotspots = stages.includes("hotspots");
 
-  const parseResult = parseCode(source, filename);
-  const metadata = { lang, kbVersion: KB_VERSION };
+  const analyzedBy: string[] = ["parse"];
+  const notes: string[] = [];
 
-  if (!parseResult.success) {
-    return AnalysisResultSchema.parse({
-      success: false,
+  // ── Stage 1: parse ────────────────────────────────────────────────────────
+
+  const parsed = parseCode(source, filename);
+
+  if (!parsed.success) {
+    const result = AnalysisResultSchema.parse({
+      lang: langFromFilename(filename),
+      kbVersion: KB_VERSION,
+      analyzedBy,
       units: [],
-      parseError: parseResult.parseError,
-      metadata,
+      parseError: parsed.parseError?.message ?? "Unknown parse error",
+      notes,
     });
+    return result;
   }
 
-  const units = parseResult.units.map((unit) => buildUnitResult(unit, stages));
+  if (parsed.units.length === 0) {
+    notes.push("no_analyzable_units");
+    const result = AnalysisResultSchema.parse({
+      lang: langFromFilename(filename),
+      kbVersion: KB_VERSION,
+      analyzedBy,
+      units: [],
+      notes,
+    });
+    return result;
+  }
+
+  // ── Stage 2: static ───────────────────────────────────────────────────────
+
+  analyzedBy.push("static");
+
+  const unitResults: UnitResult[] = parsed.units.map((unit) => {
+    const staticResult = analyzeUnit(unit);
+    const hotspots = runHotspots ? findHotspots(unit, staticResult) : [];
+
+    return {
+      name: unit.name,
+      kind: unit.kind,
+      startLine: unit.startLine,
+      endLine: unit.endLine,
+      timeComplexity: staticResult.timeComplexity,
+      spaceComplexity: staticResult.spaceComplexity,
+      confidence: staticResult.confidence,
+      hotspots,
+      uncertainNodes: staticResult.uncertainNodes,
+      recursion: staticResult.recursion,
+    };
+  });
+
+  if (runHotspots) analyzedBy.push("hotspots");
+
+  if (stages.includes("suggestions")) {
+    notes.push("suggestions_unavailable: stage not yet implemented");
+  }
+
+  // ── Validate & return ────────────────────────────────────────────────────
 
   return AnalysisResultSchema.parse({
-    success: true,
-    units,
-    metadata,
+    lang: langFromFilename(filename),
+    kbVersion: KB_VERSION,
+    analyzedBy,
+    units: unitResults,
+    notes,
   });
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function langFromFilename(filename: string): string {
+  if (filename.endsWith(".tsx")) return "tsx";
+  if (filename.endsWith(".ts")) return "typescript";
+  if (filename.endsWith(".jsx")) return "jsx";
+  if (filename.endsWith(".js") || filename.endsWith(".mjs") || filename.endsWith(".cjs")) return "javascript";
+  return "unknown";
 }

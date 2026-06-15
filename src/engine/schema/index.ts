@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+// ── Leaf schemas ─────────────────────────────────────────────────────────────
+
+export const HotspotSchema = z.object({
+  line: z.number().int().positive(),
+  col: z.number().int().positive(),
+  snippet: z.string(),
+  bigO: z.string(),
+  reason: z.string(),
+  uncertain: z.boolean(),
+});
+
 export const UncertainNodeSchema = z.object({
   description: z.string(),
   line: z.number().int().positive(),
@@ -11,14 +22,7 @@ export const RecursionInfoSchema = z.object({
   rationale: z.string(),
 });
 
-export const HotspotSchema = z.object({
-  line: z.number().int().positive(),
-  col: z.number().int().positive(),
-  snippet: z.string(),
-  bigO: z.string(),
-  reason: z.string(),
-  uncertain: z.boolean(),
-});
+// ── Per-unit result ───────────────────────────────────────────────────────────
 
 export const UnitResultSchema = z.object({
   name: z.string(),
@@ -28,29 +32,30 @@ export const UnitResultSchema = z.object({
   timeComplexity: z.string(),
   spaceComplexity: z.string(),
   confidence: z.enum(["high", "medium", "low"]),
+  hotspots: z.array(HotspotSchema),
   uncertainNodes: z.array(UncertainNodeSchema),
   recursion: RecursionInfoSchema.optional(),
-  hotspots: z.array(HotspotSchema),
-  analyzedBy: z.enum(["static", "llm"]),
+  suggestions: z.array(z.string()).optional(),
 });
 
-export const ParseErrorSchema = z.object({
-  message: z.string(),
-});
+// ── Top-level result ──────────────────────────────────────────────────────────
 
 export const AnalysisResultSchema = z.object({
-  success: z.boolean(),
+  lang: z.string(),
+  kbVersion: z.string(),
+  /** Stages that actually ran, in order — e.g. ["parse", "static", "hotspots"]. */
+  analyzedBy: z.array(z.string()),
   units: z.array(UnitResultSchema),
-  parseError: ParseErrorSchema.optional(),
-  llmUnavailable: z.string().optional(),
-  metadata: z.object({
-    lang: z.string(),
-    kbVersion: z.string(),
-  }),
+  /** Populated when the source file could not be parsed at all. */
+  parseError: z.string().optional(),
+  /** Non-fatal warnings, e.g. "llm_unavailable", "no_analyzable_units". */
+  notes: z.array(z.string()),
 });
 
-export type UncertainNodeOut = z.infer<typeof UncertainNodeSchema>;
-export type RecursionInfoOut = z.infer<typeof RecursionInfoSchema>;
-export type HotspotOut = z.infer<typeof HotspotSchema>;
+// ── Inferred types ─────────────────────────────────────────────────────────────
+
+export type HotspotResult = z.infer<typeof HotspotSchema>;
+export type UncertainNodeResult = z.infer<typeof UncertainNodeSchema>;
+export type RecursionInfoResult = z.infer<typeof RecursionInfoSchema>;
 export type UnitResult = z.infer<typeof UnitResultSchema>;
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;

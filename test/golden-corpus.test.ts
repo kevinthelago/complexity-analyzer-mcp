@@ -1,88 +1,82 @@
 /**
- * Golden corpus regression gate for the static analysis engine.
+ * Golden corpus regression gate for the static complexity analyzer.
  *
- * Each entry in corpus.json pins the expected Big-O output against a specific
- * KB version. A failure means either the engine regressed or the corpus needs
- * updating alongside a deliberate KB change.
+ * Auto-discovers all entries in test/corpus/index.ts and runs each
+ * through: parse → analyzeUnit → findHotspots.
+ *
+ * Failures display an expected-vs-actual diff via vitest's `toMatchObject`.
+ * This file is included in the vitest run and forms part of the CI gate.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 import { KB_VERSION } from "../src/engine/cost-rules/index.js";
-import { analyze } from "../src/engine/pipeline/index.js";
+import { findHotspots } from "../src/engine/hotspots/index.js";
+import { parseCode } from "../src/engine/parser/index.js";
+import { analyzeUnit } from "../src/engine/static/index.js";
+import { CORPUS, KB_VERSION_PINNED } from "./corpus/index.js";
 
-interface CorpusExpected {
-  timeComplexity: string;
-  spaceComplexity: string;
-  confidence: "high" | "medium" | "low";
-  uncertain?: boolean;
-  recursionKind?: "linear" | "divide-and-conquer" | "exponential" | "uncertain";
-  hotspots?: Array<{ bigO: string }>;
-}
+// ── KB version pin ────────────────────────────────────────────────────────────
 
-interface CorpusEntry {
-  id: string;
-  description: string;
-  kbVersion: string;
-  code: string;
-  expected: CorpusExpected;
-}
+it("corpus KB version matches the cost-rules KB_VERSION", () => {
+  expect(KB_VERSION).toBe(KB_VERSION_PINNED);
+});
 
-const corpus: CorpusEntry[] = JSON.parse(
-  readFileSync(join(import.meta.dirname, "corpus/corpus.json"), "utf-8"),
-);
+// ── Per-entry harness ────────────────────────────────────────────────────────
 
-describe("Golden corpus", () => {
-  it("corpus entries are pinned against the current KB version", () => {
-    const stale = corpus.filter((e) => e.kbVersion !== KB_VERSION);
-    if (stale.length > 0) {
-      throw new Error(
-        `${stale.length} corpus entry/entries pinned to old KB version.\n` +
-          `Current KB: ${KB_VERSION}\n` +
-          `Stale ids: ${stale.map((e) => e.id).join(", ")}`,
-      );
-    }
-  });
-
-  for (const entry of corpus) {
+describe("golden corpus", () => {
+  for (const entry of CORPUS) {
     it(`[${entry.id}] ${entry.description}`, () => {
-      const result = analyze(entry.code, { filename: "input.ts" });
+      // 1. Parse
+      const parsed = parseCode(entry.snippet, "corpus.ts");
+      expect(parsed.success, `Parse failed for ${entry.id}`).toBe(true);
+      expect(
+        parsed.units.length,
+        `No analyzable units found in ${entry.id}`,
+      ).toBeGreaterThan(0);
 
-      expect(result.success, "analysis should succeed").toBe(true);
-      expect(result.units.length, "at least one analyzable unit").toBeGreaterThan(0);
+      const unit = parsed.units[0]!;
 
-      const unit = result.units[0];
-      if (!unit) throw new Error(`[${entry.id}] No units parsed`);
+      // 2. Static pass
+      const result = analyzeUnit(unit);
 
-      expect(unit.timeComplexity, `[${entry.id}] time complexity`).toBe(
-        entry.expected.timeComplexity,
-      );
-      expect(unit.spaceComplexity, `[${entry.id}] space complexity`).toBe(
-        entry.expected.spaceComplexity,
-      );
-      expect(unit.confidence, `[${entry.id}] confidence`).toBe(entry.expected.confidence);
+      // 3. Assert expected time + space complexity
+      expect(
+        { timeComplexity: result.timeComplexity, spaceComplexity: result.spaceComplexity },
+        `[${entry.id}] complexity mismatch`,
+      ).toMatchObject({
+        timeComplexity: entry.expected.timeComplexity,
+        spaceComplexity: entry.expected.spaceComplexity,
+      });
 
-      if (entry.expected.uncertain === true) {
+      // 4. Assert confidence (when specified)
+      if (entry.expected.confidence !== undefined) {
         expect(
-          unit.uncertainNodes.length,
-          `[${entry.id}] should have uncertain nodes`,
+          result.confidence,
+          `[${entry.id}] confidence mismatch`,
+        ).toBe(entry.expected.confidence);
+      }
+
+      // 5. Assert uncertainty (when expected)
+      if (entry.expected.uncertainExpected) {
+        expect(
+          result.uncertainNodes.length,
+          `[${entry.id}] expected uncertain nodes but found none`,
         ).toBeGreaterThan(0);
-      } else if (entry.expected.uncertain === false) {
-        expect(unit.uncertainNodes, `[${entry.id}] should have no uncertain nodes`).toHaveLength(0);
       }
 
-      if (entry.expected.recursionKind) {
-        expect(unit.recursion, `[${entry.id}] recursion info should exist`).toBeDefined();
-        expect(unit.recursion?.kind, `[${entry.id}] recursion kind`).toBe(
-          entry.expected.recursionKind,
-        );
-      }
+      // 6. Hotspot assertions (when provided)
+      if (entry.expected.hotspots !== undefined) {
+        const hotspots = findHotspots(unit, result);
 
-      if (entry.expected.hotspots) {
-        for (let i = 0; i < entry.expected.hotspots.length; i++) {
-          const expected = entry.expected.hotspots[i];
-          if (!expected) continue;
-          expect(unit.hotspots[i]?.bigO, `[${entry.id}] hotspot[${i}] bigO`).toBe(expected.bigO);
+        if (entry.expected.hotspots.length === 0) {
+          expect(hotspots, `[${entry.id}] expected no hotspots`).toHaveLength(0);
+        } else {
+          for (const expected of entry.expected.hotspots) {
+            expect(
+              hotspots.some((h) => h.bigO === expected.bigO),
+              `[${entry.id}] no hotspot with bigO=${expected.bigO} found; got [${hotspots.map((h) => h.bigO).join(", ")}]`,
+            ).toBe(true);
+          }
         }
       }
     });

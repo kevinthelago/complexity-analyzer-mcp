@@ -70,7 +70,14 @@ time complexity, space complexity, and a confidence rating.
 }
 ```
 
-`filename` is optional (default `input.ts`) and is used only for language detection
+Or pass a file path instead of inline code:
+
+```json
+{ "path": "/abs/path/to/utils.ts" }
+```
+
+`code` takes precedence when both are supplied. `filename` is optional (default
+`input.ts` or the basename of `path`) and is used only for language detection
 (`.ts` → TypeScript mode, `.js` → JavaScript mode).
 
 **Output** (example)

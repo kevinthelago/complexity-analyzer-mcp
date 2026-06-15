@@ -135,8 +135,93 @@ data-structure or complexity improvements.
 
 ### `find_hotspots`
 
-**Not yet available in this build.** Will identify the highest-complexity functions ranked
-by Big-O cost once the hotspot analyzer (CA-5) lands.
+Identifies the most algorithmically expensive functions, ranked by Big-O severity.
+Accepts inline code, a file path, or a glob pattern for multi-file sweeps.
+
+**Input**
+
+```json
+{
+  "code": "...",
+  "topN": 5
+}
+```
+
+Or use a path / glob instead of inline code:
+
+```json
+{
+  "path": "src/**/*.ts",
+  "topN": 10
+}
+```
+
+`topN` is optional (default `5`, max `50`).
+
+**Output** (example)
+
+```json
+{
+  "hotspots": [
+    {
+      "name": "findPairs",
+      "kind": "function",
+      "startLine": 10,
+      "endLine": 18,
+      "timeComplexity": "O(n²)",
+      "spaceComplexity": "O(1)",
+      "confidence": "high",
+      "uncertainNodes": []
+    }
+  ],
+  "totalFunctions": 3
+}
+```
+
+For multi-file glob runs each entry also includes a `filename` field.
+
+---
+
+### `measure_complexity`
+
+Empirically measures the runtime Big-O of a function by benchmarking it across
+growing input sizes in an isolated `worker_thread` sandbox.
+
+```json
+{
+  "targetPath": "/abs/path/to/file.js",
+  "exportName": "myFn",
+  "generatorCode": "(n) => [Array.from({length: n}, (_, i) => i)]"
+}
+```
+
+`generatorCode` is a JS expression that returns `(n: number) => args`. Return a
+single value or an array spread as arguments.
+
+Optional tuning: `inputSizes`, `warmup`, `trials`, `timeoutMs`, `memoryMB`,
+`staticTimeComplexity` (for reconciliation).
+
+**Output**
+
+```json
+{
+  "status": "ok",
+  "empirical": {
+    "bigO": "O(n²)",
+    "rSquared": 0.998,
+    "confidence": "high",
+    "reconciliation": "agree"
+  }
+}
+```
+
+`reconciliation` is `"agree"` / `"diverge"` / `"inconclusive"` depending on
+how the measured result compares to `staticTimeComplexity`. The target code runs
+sandboxed and is never imported into the server process.
+
+> **Security note:** `measure_complexity` executes code you supply in a
+> `worker_thread` with a memory cap and a wall-clock timeout. Only point it at
+> code you trust; never pass untrusted user input as `targetPath`.
 
 ---
 

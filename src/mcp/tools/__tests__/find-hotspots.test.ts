@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import tool from "../find-hotspots.js";
 
@@ -63,5 +66,58 @@ describe("find_hotspots tool", () => {
     const result = tool.execute({ code: bigCode });
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toMatch(/limit/i);
+  });
+
+  it("reads from path when no inline code is given", () => {
+    const dir = mkdtempSync(join(tmpdir(), "fh-test-"));
+    const file = join(dir, "sample.ts");
+    writeFileSync(file, "function linear(arr: number[]) { for (const x of arr) x; }");
+    const result = tool.execute({ path: file });
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as {
+      hotspots: Array<{ name: string; timeComplexity: string }>;
+    };
+    expect(data.hotspots.length).toBeGreaterThan(0);
+    expect(data.hotspots[0]?.timeComplexity).toBe("O(n)");
+  });
+
+  it("uses basename of path as filename for language detection", () => {
+    const dir = mkdtempSync(join(tmpdir(), "fh-test-"));
+    const file = join(dir, "widget.tsx");
+    writeFileSync(file, "function f(arr: number[]) { for (const x of arr) x; }");
+    const result = tool.execute({ path: file });
+    expect(result.isError).toBeFalsy();
+    // Should not error — tsx extension correctly detected
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as { hotspots: unknown[] };
+    expect(Array.isArray(data.hotspots)).toBe(true);
+  });
+
+  it("prefers inline code over path when both are provided", () => {
+    const dir = mkdtempSync(join(tmpdir(), "fh-test-"));
+    const file = join(dir, "ignored.ts");
+    writeFileSync(file, "function fromFile() {}"); // O(1) — would appear if path wins
+    const result = tool.execute({
+      path: file,
+      code: "function fromCode(arr: number[]) { for (const x of arr) x; }",
+    });
+    expect(result.isError).toBeFalsy();
+    const data = JSON.parse(result.content[0]?.text ?? "{}") as {
+      hotspots: Array<{ name: string }>;
+    };
+    // code wins — fromCode appears, not fromFile
+    expect(data.hotspots.some((h) => h.name === "fromCode")).toBe(true);
+    expect(data.hotspots.some((h) => h.name === "fromFile")).toBe(false);
+  });
+
+  it("returns isError when neither code nor path is provided", () => {
+    const result = tool.execute({});
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toMatch(/code.*path|path.*code/i);
+  });
+
+  it("returns isError for a non-existent path", () => {
+    const result = tool.execute({ path: "/nonexistent/path/to/file.ts" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toMatch(/failed to read/i);
   });
 });

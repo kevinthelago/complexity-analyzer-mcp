@@ -1,0 +1,221 @@
+[
+  {
+    "id": "constant-add",
+    "description": "Simple addition: O(1) time and space",
+    "kbVersion": "1.0.0",
+    "code": "function add(a: number, b: number): number { return a + b; }",
+    "expected": {
+      "timeComplexity": "O(1)",
+      "spaceComplexity": "O(1)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "single-for-of-loop",
+    "description": "Single for-of loop: O(n) time, O(1) space",
+    "kbVersion": "1.0.0",
+    "code": "function sumArray(arr: number[]): number { let s = 0; for (const x of arr) s += x; return s; }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(1)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "single-while-loop",
+    "description": "Single while loop: O(n) time, O(1) space",
+    "kbVersion": "1.0.0",
+    "code": "function countdown(n: number): void { while (n > 0) n--; }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(1)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "nested-loops-n2",
+    "description": "Two nested for loops: O(n²) time, O(1) space",
+    "kbVersion": "1.0.0",
+    "code": "function pairs(arr: number[]): void { for (let i = 0; i < arr.length; i++) { for (let j = 0; j < arr.length; j++) { void (arr[i]! + arr[j]!); } } }",
+    "expected": {
+      "timeComplexity": "O(n²)",
+      "spaceComplexity": "O(1)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "triple-nested-loops",
+    "description": "Three nested for loops: O(n³) time, O(1) space — loop depth > 2 lowers confidence to medium",
+    "kbVersion": "1.0.0",
+    "code": "function cube(n: number): void { for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) { for (let k = 0; k < n; k++) { void (i + j + k); } } } }",
+    "expected": {
+      "timeComplexity": "O(n³)",
+      "spaceComplexity": "O(1)",
+      "confidence": "medium",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "sequential-loops",
+    "description": "Two sequential (not nested) for loops: dominant O(n)",
+    "kbVersion": "1.0.0",
+    "code": "function twoPass(arr: number[]): void { for (const x of arr) void x; for (const x of arr) void x; }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(1)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "sort-builtin",
+    "description": "Array.sort() call: O(n log n) time, O(log n) space",
+    "kbVersion": "1.0.0",
+    "code": "function sortArr(arr: number[]): number[] { return arr.sort((a, b) => a - b); }",
+    "expected": {
+      "timeComplexity": "O(n log n)",
+      "spaceComplexity": "O(log n)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "array-map",
+    "description": "Array.map() creates new collection: O(n) time, O(n) space",
+    "kbVersion": "1.0.0",
+    "code": "function doubled(arr: number[]): number[] { return arr.map(x => x * 2); }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(n)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "new-collection",
+    "description": "new Map allocation: O(1) time, O(n) space",
+    "kbVersion": "1.0.0",
+    "code": "function buildMap(keys: string[]): Map<string, number> { const m = new Map<string, number>(); for (let i = 0; i < keys.length; i++) m.set(keys[i]!, i); return m; }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(n)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "set-has-lookup",
+    "description": "Set.has() lookup: O(1) time and space",
+    "kbVersion": "1.0.0",
+    "code": "function hasVal(s: Set<number>, v: number): boolean { return s.has(v); }",
+    "expected": {
+      "timeComplexity": "O(1)",
+      "spaceComplexity": "O(1)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "includes-call",
+    "description": "Array.includes() linear scan: O(n) time — engine reports O(n) space (time cost used as space proxy)",
+    "kbVersion": "1.0.0",
+    "code": "function contains(arr: number[], val: number): boolean { return arr.includes(val); }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(n)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "linear-recursion",
+    "description": "Factorial: linear O(n) recursion, O(n) stack space",
+    "kbVersion": "1.0.0",
+    "code": "function factorial(n: number): number { if (n <= 1) return 1; return n * factorial(n - 1); }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(n)",
+      "confidence": "medium",
+      "uncertain": false,
+      "recursionKind": "linear"
+    }
+  },
+  {
+    "id": "divide-and-conquer",
+    "description": "mergeSort: divide-and-conquer O(n log n), O(log n) stack space",
+    "kbVersion": "1.0.0",
+    "code": "function mergeSort(arr: number[]): number[] { if (arr.length <= 1) return arr; const mid = Math.floor(arr.length / 2); const left = mergeSort(arr.slice(0, mid)); const right = mergeSort(arr.slice(mid)); return [...left, ...right]; }",
+    "expected": {
+      "timeComplexity": "O(n log n)",
+      "spaceComplexity": "O(log n)",
+      "confidence": "medium",
+      "uncertain": false,
+      "recursionKind": "divide-and-conquer"
+    }
+  },
+  {
+    "id": "exponential-recursion",
+    "description": "Fibonacci: exponential O(2ⁿ) without memoization",
+    "kbVersion": "1.0.0",
+    "code": "function fib(n: number): number { if (n <= 1) return n; return fib(n - 1) + fib(n - 2); }",
+    "expected": {
+      "timeComplexity": "O(2ⁿ)",
+      "spaceComplexity": "O(2ⁿ)",
+      "confidence": "medium",
+      "uncertain": false,
+      "recursionKind": "exponential"
+    }
+  },
+  {
+    "id": "in-place-loop",
+    "description": "In-place loop with no allocation: O(n) time, O(1) space",
+    "kbVersion": "1.0.0",
+    "code": "function reverseInPlace(arr: number[]): void { let l = 0; let r = arr.length - 1; while (l < r) { const tmp = arr[l]!; arr[l] = arr[r]!; arr[r] = tmp; l++; r--; } }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(1)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "uncertain-unknown-call",
+    "description": "Unknown method call produces uncertain node and low confidence",
+    "kbVersion": "1.0.0",
+    "code": "function process(data: any): void { data.unknownTransform(); }",
+    "expected": {
+      "timeComplexity": "O(1)",
+      "spaceComplexity": "O(1)",
+      "confidence": "low",
+      "uncertain": true
+    }
+  },
+  {
+    "id": "hash-vs-scan",
+    "description": "Map.has() O(1) vs Array.includes() O(n) — building a lookup set is O(n)",
+    "kbVersion": "1.0.0",
+    "code": "function buildLookup(items: string[]): Map<string, boolean> { const m = new Map<string, boolean>(); for (const item of items) m.set(item, true); return m; }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(n)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  },
+  {
+    "id": "reduce-fold",
+    "description": "Array.reduce() single pass: O(n) time — engine reports O(n) space (time cost used as space proxy)",
+    "kbVersion": "1.0.0",
+    "code": "function total(arr: number[]): number { return arr.reduce((acc, x) => acc + x, 0); }",
+    "expected": {
+      "timeComplexity": "O(n)",
+      "spaceComplexity": "O(n)",
+      "confidence": "high",
+      "uncertain": false
+    }
+  }
+]

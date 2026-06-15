@@ -43,11 +43,13 @@ describe("measure()", () => {
   }, 30_000);
 
   it("measures O(n²) quadratic function correctly", async () => {
+    // Use input sizes large enough that each run clears the JIT/overhead floor
+    // (~0.05 ms), ensuring ≥3 clean log-log data points for reliable regression.
     const outcome = await measure({
       targetPath: QUADRATIC_PATH,
       exportName: "quadraticPairs",
       generatorCode: INT_ARR_GEN,
-      inputSizes: [50, 200, 1_000, 3_000],
+      inputSizes: [1_000, 2_000, 3_000, 5_000],
       warmup: 1,
       trials: 3,
       timeoutMs: 20_000,

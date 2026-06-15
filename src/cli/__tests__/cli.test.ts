@@ -421,6 +421,21 @@ describe("runCli", () => {
     expect(data.files).toHaveLength(2);
   });
 
+  it("glob matching no files exits 0 with a friendly notice", async () => {
+    const r = await runCli({ path: "nonexistent-dir-xyz-9999/**/*.ts", json: false, deep: false });
+    expect(r.exitCode).toBe(0);
+    expect(r.output).toContain("No matching files found");
+  });
+
+  it("glob matching files analyses each matched file — non-JSON output", async () => {
+    writeTmp("glob-a.ts", SIMPLE_TS);
+    writeTmp("glob-b.ts", SIMPLE_TS);
+    const pattern = join(tmpDir, "glob-*.ts");
+    const r = await runCli({ path: pattern, json: false, deep: false });
+    expect(r.exitCode).toBe(0);
+    expect(r.output).toContain("O(n)");
+  });
+
   it("analyses a real file and exits 0", async () => {
     const p = writeTmp("simple.ts", SIMPLE_TS);
     const r = await runCli({ path: p, json: false, deep: false });

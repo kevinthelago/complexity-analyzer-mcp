@@ -1,7 +1,7 @@
 import type { Hotspot } from "../engine/hotspots/index.js";
 import type { AnalyzableUnit } from "../engine/parser/types.js";
 import type { StaticComplexityResult } from "../engine/static/types.js";
-import type { SuggestionResult } from "../engine/suggest/index.js";
+import type { SuggestResult } from "../engine/suggest/index.js";
 import type { EmpiricalResult } from "../runtime/types.js";
 
 export type LLMStatus = "ok" | "llm_unavailable" | "llm_error";
@@ -35,7 +35,7 @@ export interface DeepAnalyzeInput {
   /** Pre-computed hotspots; passed through to the prompt when provided. */
   hotspots?: Hotspot[];
   /** Pre-computed optimization suggestions; included in the prompt when provided. */
-  suggestions?: SuggestionResult;
+  suggestions?: SuggestResult;
   /** Empirical timing result from the runtime sandbox; included when available. */
   empirical?: EmpiricalResult;
 }

@@ -145,9 +145,11 @@ describe("runPipeline — subset pipelines", () => {
     expect(result.units[0]?.hotspots.length).toBeGreaterThan(0);
   });
 
-  it("requesting suggestions stage adds a note (not yet implemented)", () => {
+  it("suggestions stage runs without error and is included in analyzedBy", () => {
     const result = runPipeline(SIMPLE_FN, { stages: ["suggestions"] });
-    expect(result.notes.some((n) => n.includes("suggestions"))).toBe(true);
+    expect(result.analyzedBy).toContain("suggestions");
+    // units[0] may or may not have suggestions for simple O(1) input; no throw is the contract
+    expect(() => result.units).not.toThrow();
   });
 });
 

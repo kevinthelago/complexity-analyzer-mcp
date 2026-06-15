@@ -23,6 +23,31 @@ export const RecursionInfoSchema = z.object({
   rationale: z.string(),
 });
 
+export const SuggestionSchema = z.object({
+  /** Stable rule identifier (e.g. "membership-in-loop"). */
+  ruleId: z.string(),
+  /** Short description of the issue and the recommended change. */
+  description: z.string(),
+  /** Why the fix is safe and what it achieves. */
+  rationale: z.string(),
+  /** Source location where the pattern was detected. */
+  line: z.number().int().positive(),
+  col: z.number().int().positive(),
+  /** Estimated complexity before the optimization. */
+  beforeBigO: z.string(),
+  /** Estimated complexity after the optimization (or "unknown" when unquantifiable). */
+  afterBigO: z.string(),
+  /** Behavioural assumption, if any. */
+  assumptions: z.string().optional(),
+});
+
+export const EmpiricalResultSchema = z.object({
+  bigO: z.string(),
+  rSquared: z.number(),
+  confidence: z.enum(["high", "medium", "low"]),
+  reconciliation: z.enum(["agree", "diverge", "inconclusive"]),
+});
+
 // ── Per-unit result ───────────────────────────────────────────────────────────
 
 export const UnitResultSchema = z.object({
@@ -36,7 +61,8 @@ export const UnitResultSchema = z.object({
   hotspots: z.array(HotspotSchema),
   uncertainNodes: z.array(UncertainNodeSchema),
   recursion: RecursionInfoSchema.optional(),
-  suggestions: z.array(z.string()).optional(),
+  suggestions: z.array(SuggestionSchema).optional(),
+  empirical: EmpiricalResultSchema.optional(),
 });
 
 // ── Top-level result ──────────────────────────────────────────────────────────
@@ -58,5 +84,7 @@ export const AnalysisResultSchema = z.object({
 export type HotspotResult = z.infer<typeof HotspotSchema>;
 export type UncertainNodeResult = z.infer<typeof UncertainNodeSchema>;
 export type RecursionInfoResult = z.infer<typeof RecursionInfoSchema>;
+export type SuggestionResult = z.infer<typeof SuggestionSchema>;
+export type EmpiricalResult = z.infer<typeof EmpiricalResultSchema>;
 export type UnitResult = z.infer<typeof UnitResultSchema>;
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;

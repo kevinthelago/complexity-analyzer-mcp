@@ -1,7 +1,7 @@
 import type { Hotspot } from "../engine/hotspots/index.js";
 import type { AnalyzableUnit } from "../engine/parser/types.js";
 import type { StaticComplexityResult } from "../engine/static/types.js";
-import type { SuggestionResult } from "../engine/suggest/index.js";
+import type { SuggestResult } from "../engine/suggest/index.js";
 import type { EmpiricalResult } from "../runtime/types.js";
 
 const BIG_O_VALUES = [
@@ -24,7 +24,7 @@ function buildHotspotsSection(hotspots: Hotspot[] | undefined): string {
   return `\nHotspots (costly constructs):\n${lines.join("\n")}`;
 }
 
-function buildSuggestionsSection(suggestions: SuggestionResult | undefined): string {
+function buildSuggestionsSection(suggestions: SuggestResult | undefined): string {
   if (!suggestions || suggestions.suggestions.length === 0) return "";
   const lines = suggestions.suggestions.map(
     (s) =>
@@ -48,7 +48,7 @@ export function buildPrompt(
   unit: AnalyzableUnit,
   staticResult: StaticComplexityResult,
   hotspots?: Hotspot[],
-  suggestions?: SuggestionResult,
+  suggestions?: SuggestResult,
   empirical?: EmpiricalResult,
 ): string {
   const sourceCode = unit.node.getText();

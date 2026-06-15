@@ -22,7 +22,7 @@ export interface OptimizationSuggestion {
   assumptions?: string;
 }
 
-export interface SuggestionResult {
+export interface SuggestResult {
   /** Detected optimization opportunities, ordered by impact (most impactful first) */
   suggestions: OptimizationSuggestion[];
   /** High-level summary; 'no improvement found' when the function is already optimal */

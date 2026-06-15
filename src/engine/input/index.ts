@@ -96,11 +96,12 @@ export async function resolveInput(
     };
   }
 
-  // GlobInput
+  // GlobInput — normalize backslashes so tinyglobby works on Windows paths
   const cwd = spec.cwd ? resolve(spec.cwd) : process.cwd();
+  const normalizedGlob = spec.glob.replace(/\\/g, "/");
   let matched: string[];
   try {
-    matched = await glob(spec.glob, { cwd, absolute: true });
+    matched = await glob(normalizedGlob, { cwd, absolute: true });
   } catch (e) {
     return {
       kind: "error",

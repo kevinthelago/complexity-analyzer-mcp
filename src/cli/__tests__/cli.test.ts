@@ -409,10 +409,16 @@ describe("runCli", () => {
     expect(r.output).toContain("directory");
   });
 
-  it("returns exitCode 1 for a glob pattern", async () => {
-    const r = await runCli({ path: "src/**/*.ts", json: false, deep: false });
-    expect(r.exitCode).toBe(1);
-    expect(r.output).toContain("glob");
+  it("supports glob patterns — multiple matches return exitCode 0 with a files array", async () => {
+    writeTmp("glob1.ts", SIMPLE_TS);
+    writeTmp("glob2.ts", NESTED_LOOPS_TS);
+    const pattern = join(tmpDir, "glob*.ts");
+    const r = await runCli({ path: pattern, json: true, deep: false });
+    expect(r.exitCode).toBe(0);
+    const data = JSON.parse(r.output);
+    expect(data).toHaveProperty("files");
+    expect(Array.isArray(data.files)).toBe(true);
+    expect(data.files).toHaveLength(2);
   });
 
   it("analyses a real file and exits 0", async () => {

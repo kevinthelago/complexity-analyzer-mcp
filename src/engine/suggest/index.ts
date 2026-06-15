@@ -7,9 +7,9 @@ import {
   detectSortInLoop,
   detectUnshiftSpliceInLoop,
 } from "./rules.js";
-import type { OptimizationSuggestion, SuggestionResult } from "./types.js";
+import type { OptimizationSuggestion, SuggestResult } from "./types.js";
 
-export type { OptimizationSuggestion, PatternKind, SuggestionResult } from "./types.js";
+export type { OptimizationSuggestion, PatternKind, SuggestResult } from "./types.js";
 
 const PRIORITY: Record<string, number> = {
   "recompute-in-recursion": 5,
@@ -35,7 +35,7 @@ function priorityOf(s: OptimizationSuggestion): number {
 export function suggestOptimizations(
   unit: AnalyzableUnit,
   staticResult: StaticComplexityResult,
-): SuggestionResult {
+): SuggestResult {
   const membership = detectMembershipInLoop(unit);
 
   // Pass membership loop keys so nested-scan can skip already-covered loops

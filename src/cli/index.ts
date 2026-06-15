@@ -1,9 +1,9 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
 import { extname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findHotspots } from "../engine/hotspots/index.js";
 import { analyzeUnit, parseCode } from "../engine/index.js";
 import type { RecursionInfo, UncertainNode } from "../engine/index.js";
+import { resolveInput } from "../engine/input/index.js";
 import { suggestOptimizations } from "../engine/suggest/index.js";
 import { deepAnalyzeUnit } from "../llm/index.js";
 import type { LLMAlternative, LLMClient } from "../llm/index.js";
@@ -318,6 +318,8 @@ export interface ParsedArgs {
 
 const USAGE = `Usage: complexity-analyzer analyze <path> [options]
 
+  <path>  File path or glob pattern (e.g. 'src/**/*.ts')
+
 Options:
   --json                Emit raw JSON output
   --deep                Run LLM-powered deep analysis (requires ANTHROPIC_API_KEY or OPENAI_API_KEY)
@@ -365,7 +367,7 @@ export function parseCliArgs(argv: string[]): ParsedArgs {
       opts.lang = langVal;
     } else if (!arg.startsWith("-")) {
       if (opts.path)
-        return { opts, error: "Too many positional arguments. Pass a single file path." };
+        return { opts, error: "Too many positional arguments. Pass a single file path or glob." };
       opts.path = arg;
     } else {
       return { opts, error: `Unknown option '${arg}'` };
@@ -382,57 +384,22 @@ export function parseCliArgs(argv: string[]): ParsedArgs {
 
 // ── CLI runner (testable — returns result, never calls process.exit) ──────────
 
-const GLOB_CHARS = /[*?{[]/;
-
-export async function runCli(
+async function runOneFile(
+  source: string,
+  filePath: string,
   opts: CliOptions,
-  _measureFn: MeasureFn = defaultMeasure,
-): Promise<CliRunResult> {
-  const { path: rawPath, json, deep, lang } = opts;
+  measureFn: MeasureFn,
+): Promise<{ result: AnalysisOutput; notices: string }> {
+  const { deep, lang } = opts;
   const doMeasure = opts.measure ?? false;
   const generatorCode = opts.generator ?? DEFAULT_GENERATOR;
+  let notices = "";
 
-  if (GLOB_CHARS.test(rawPath)) {
-    return {
-      output: "Error: glob patterns are not supported. Pass a single file path.\n",
-      exitCode: 1,
-    };
-  }
-
-  const resolvedPath = resolve(rawPath);
-
-  if (!existsSync(resolvedPath)) {
-    return { output: `Error: file not found: ${rawPath}\n`, exitCode: 1 };
-  }
-
-  let isDir: boolean;
-  try {
-    isDir = statSync(resolvedPath).isDirectory();
-  } catch {
-    return { output: `Error: cannot stat ${rawPath}\n`, exitCode: 1 };
-  }
-
-  if (isDir) {
-    return {
-      output: `Error: ${rawPath} is a directory. Pass a single file path.\n`,
-      exitCode: 1,
-    };
-  }
-
-  let source: string;
-  try {
-    source = readFileSync(resolvedPath, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { output: `Error: cannot read ${rawPath}: ${msg}\n`, exitCode: 1 };
-  }
-
-  // Run empirical sweep if --measure is set; build empirical map for --deep
   let empiricalMap: Map<string, EmpiricalResult> | undefined;
   let measureResult: AnalysisOutput | undefined;
 
   if (doMeasure) {
-    measureResult = await runMeasureAnalysis(source, resolvedPath, generatorCode, lang, _measureFn);
+    measureResult = await runMeasureAnalysis(source, filePath, generatorCode, lang, measureFn);
     empiricalMap = new Map(
       measureResult.units
         .filter((u) => u.measureStatus === "ok" && u.empiricalBigO !== undefined)
@@ -452,7 +419,6 @@ export async function runCli(
   }
 
   let result: AnalysisOutput;
-  let notices = "";
 
   if (deep) {
     const hasAnthropic = Boolean(process.env.ANTHROPIC_API_KEY);
@@ -460,10 +426,9 @@ export async function runCli(
     if (!hasAnthropic && !hasOpenAI) {
       notices =
         "\nNote: --deep requires ANTHROPIC_API_KEY or OPENAI_API_KEY. Showing static analysis only.\n";
-      result = measureResult ?? runAnalysis(source, resolvedPath, lang);
+      result = measureResult ?? runAnalysis(source, filePath, lang);
     } else {
-      result = await runDeepAnalysis(source, resolvedPath, lang, undefined, empiricalMap);
-      // Merge empirical fields from measureResult into the deep result
+      result = await runDeepAnalysis(source, filePath, lang, undefined, empiricalMap);
       if (measureResult) {
         const byName = new Map(measureResult.units.map((u) => [u.name, u]));
         for (const u of result.units) {
@@ -480,23 +445,74 @@ export async function runCli(
       }
     }
   } else {
-    result = measureResult ?? runAnalysis(source, resolvedPath, lang);
+    result = measureResult ?? runAnalysis(source, filePath, lang);
   }
 
-  if (result.parseError && !json) {
-    return { output: `Error: ${result.parseError}\n`, exitCode: 1 };
+  return { result, notices };
+}
+
+export async function runCli(
+  opts: CliOptions,
+  measureFn: MeasureFn = defaultMeasure,
+): Promise<CliRunResult> {
+  const { path: rawPath, json, deep } = opts;
+  const doMeasure = opts.measure ?? false;
+  const isGlob = /[*?{[]/.test(rawPath);
+  const resolveSpec = isGlob ? { glob: rawPath } : { path: rawPath };
+
+  const resolved = await resolveInput(resolveSpec);
+
+  if (resolved.kind === "error") {
+    const msg = `Error: ${resolved.message}\n`;
+    return { output: json ? "" : msg, exitCode: 1 };
   }
+
+  if (resolved.entries.length === 0) {
+    if (json) {
+      return {
+        output: `${JSON.stringify({ files: [], message: "No matching files found." }, null, 2)}\n`,
+        exitCode: 0,
+      };
+    }
+    return { output: "No matching files found.\n", exitCode: 0 };
+  }
+
+  const allResults: AnalysisOutput[] = [];
+  let allNotices = "";
+
+  for (const entry of resolved.entries) {
+    const { result, notices } = await runOneFile(
+      entry.source,
+      // Use the absolute path for measurement (it must exist on disk)
+      isGlob ? entry.filename : resolve(rawPath),
+      opts,
+      measureFn,
+    );
+    allResults.push(result);
+    if (notices) allNotices = notices; // same notice for all files
+  }
+
+  const hasParseError = allResults.some((r) => r.parseError);
 
   if (json) {
-    const payload: Record<string, unknown> = { ...result };
-    if (deep) payload.deepEnabled = true;
-    if (doMeasure) payload.measureEnabled = true;
-    const output = `${JSON.stringify(payload, null, 2)}\n`;
-    return { output, exitCode: result.parseError ? 1 : 0 };
+    const extras: Record<string, unknown> = {};
+    if (deep) extras.deepEnabled = true;
+    if (doMeasure) extras.measureEnabled = true;
+
+    const payload =
+      allResults.length === 1 ? { ...allResults[0], ...extras } : { files: allResults, ...extras };
+
+    return {
+      output: `${JSON.stringify(payload, null, 2)}\n`,
+      exitCode: hasParseError ? 1 : 0,
+    };
   }
 
-  const output = `${formatHuman(result)}${notices}\n`;
-  return { output, exitCode: result.parseError ? 1 : 0 };
+  const parts = allResults.map((r) => formatHuman(r));
+  return {
+    output: `${parts.join("\n\n")}${allNotices}\n`,
+    exitCode: hasParseError ? 1 : 0,
+  };
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────

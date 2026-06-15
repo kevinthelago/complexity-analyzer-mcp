@@ -26,7 +26,14 @@ function linearRegression(xs: number[], ys: number[]): RegressionResult {
   }
 
   const denom = n * sumX2 - sumX * sumX;
-  if (denom === 0) return { slope: 0, intercept: sumY / n, rSquared: 1 };
+  if (denom === 0) {
+    // All xs are identical — can only fit a constant (intercept = mean(ys)).
+    // R² = 0 unless ys are also constant, in which case R² = 1.
+    const yMean = sumY / n;
+    let ssTot = 0;
+    for (let i = 0; i < n; i++) ssTot += ((ys[i] ?? 0) - yMean) ** 2;
+    return { slope: 0, intercept: yMean, rSquared: ssTot === 0 ? 1 : 0 };
+  }
 
   const slope = (n * sumXY - sumX * sumY) / denom;
   const intercept = (sumY - slope * sumX) / n;
@@ -80,10 +87,12 @@ export interface FitResult {
 export function fitBigO(ns: number[], times: number[]): FitResult {
   if (ns.length < 3) return { bigO: "unknown", rSquared: 0 };
 
-  // Guard against all-zero or constant times (no growth signal)
+  // Guard against all-zero or constant times (no growth signal).
+  // Use a relative threshold so small measurement noise on flat data still
+  // reads as O(1) even if maxTime - minTime is not exactly zero.
   const maxTime = Math.max(...times);
   const minTime = Math.min(...times);
-  if (maxTime === 0 || maxTime - minTime < 1e-9) {
+  if (maxTime === 0 || (maxTime - minTime) / maxTime < 0.05) {
     return { bigO: "O(1)", rSquared: 1 };
   }
 

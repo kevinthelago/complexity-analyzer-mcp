@@ -45,7 +45,7 @@ describe("measure()", () => {
       targetPath: QUADRATIC_PATH,
       exportName: "quadraticPairs",
       generatorCode: INT_ARR_GEN,
-      inputSizes: [50, 100, 200, 400],
+      inputSizes: [50, 200, 1_000, 3_000],
       warmup: 1,
       trials: 3,
       timeoutMs: 20_000,

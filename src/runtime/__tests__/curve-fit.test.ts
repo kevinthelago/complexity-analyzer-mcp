@@ -49,14 +49,14 @@ describe("fitBigO", () => {
   });
 
   it("classifies O(n²) quadratic growth", () => {
-    const { ns, times } = syntheticData((n) => n * n, [10, 50, 100, 500, 1_000]);
+    const { ns, times } = syntheticData((n) => n * n, [10, 100, 500, 2_000, 5_000]);
     const result = fitBigO(ns, times);
     expect(result.bigO).toBe("O(n²)");
     expect(result.rSquared).toBeGreaterThan(0.98);
   });
 
   it("classifies O(n³) cubic growth", () => {
-    const { ns, times } = syntheticData((n) => n * n * n, [10, 30, 50, 100, 200]);
+    const { ns, times } = syntheticData((n) => n * n * n, [5, 20, 60, 150, 400]);
     const result = fitBigO(ns, times);
     expect(result.bigO).toBe("O(n³)");
     expect(result.rSquared).toBeGreaterThan(0.98);

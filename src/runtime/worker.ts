@@ -6,6 +6,7 @@ import { performance } from "node:perf_hooks";
  * This file is loaded as a separate worker_thread entry — never import it
  * directly from the main process.
  */
+import { pathToFileURL } from "node:url";
 import { parentPort, workerData } from "node:worker_threads";
 import type { SizeResult, WorkerInput, WorkerOutput } from "./types.js";
 
@@ -26,7 +27,8 @@ function median(arr: number[]): number {
 
 async function run(): Promise<void> {
   try {
-    const mod = (await import(targetPath)) as Record<string, unknown>;
+    const targetUrl = pathToFileURL(targetPath).href;
+    const mod = (await import(targetUrl)) as Record<string, unknown>;
     const fn = mod[exportName];
     if (typeof fn !== "function") {
       const out: WorkerOutput = {

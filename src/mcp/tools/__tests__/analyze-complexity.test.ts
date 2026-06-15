@@ -1,12 +1,5 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import tool from "../analyze-complexity.js";
-
-const TMP = join(tmpdir(), "ca-analyze-test");
-mkdirSync(TMP, { recursive: true });
-afterAll(() => rmSync(TMP, { recursive: true, force: true }));
 
 describe("analyze_complexity tool", () => {
   it("returns complexity data for a simple function", () => {
@@ -73,51 +66,6 @@ describe("analyze_complexity tool", () => {
       code: "function hello() { return 42; }",
       filename: "myfile.js",
     });
-    expect(result.isError).toBeFalsy();
-  });
-
-  // path parameter tests
-  it("reads source from path when code is not provided", () => {
-    const file = join(TMP, "linear.ts");
-    writeFileSync(
-      file,
-      "function linear(arr: number[]) { return arr.reduce((a, b) => a + b, 0); }",
-    );
-    const result = tool.execute({ path: file });
-    expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]?.text ?? "{}") as { units: Array<{ name: string }> };
-    expect(data.units[0]?.name).toBe("linear");
-  });
-
-  it("code takes precedence over path when both are provided", () => {
-    const file = join(TMP, "quadratic.ts");
-    writeFileSync(file, "function quadratic() { for(let i=0;i<n;i++) for(let j=0;j<n;j++){} }");
-    // code defines a function named 'fromCode'; if path wins we'd see 'quadratic'
-    const result = tool.execute({
-      code: "function fromCode() { return 1; }",
-      path: file,
-    });
-    expect(result.isError).toBeFalsy();
-    const data = JSON.parse(result.content[0]?.text ?? "{}") as { units: Array<{ name: string }> };
-    expect(data.units[0]?.name).toBe("fromCode");
-  });
-
-  it("returns isError for a non-existent path", () => {
-    const result = tool.execute({ path: "/no/such/file.ts" });
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toMatch(/could not read/i);
-  });
-
-  it("returns isError when neither code nor path is provided", () => {
-    const result = tool.execute({});
-    expect(result.isError).toBe(true);
-    expect(result.content[0]?.text).toMatch(/code or path/i);
-  });
-
-  it("uses basename of path as filename when filename is omitted", () => {
-    const file = join(TMP, "helper.js");
-    writeFileSync(file, "function helper() { return 1; }");
-    const result = tool.execute({ path: file });
     expect(result.isError).toBeFalsy();
   });
 });

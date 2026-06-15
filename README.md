@@ -1,9 +1,8 @@
 # complexity-analyzer-mcp
 
-An MCP server and CLI tool that analyses TypeScript and JavaScript code for time and space complexity.
-Three static tools are always available; the `deep_analyze` tool uses an LLM for a second-opinion
-pass and requires `ANTHROPIC_API_KEY`. An optional empirical pass (`measure_complexity` / `--measure`)
-benchmarks exported functions in a resource-bounded out-of-process sandbox.
+An MCP server that analyses TypeScript and JavaScript code for time and space complexity.
+Three static tools are always available; a fourth (`deep_analyze`) uses an LLM for a
+second-opinion pass and requires `ANTHROPIC_API_KEY`.
 
 ## Installation
 
@@ -91,9 +90,9 @@ Or pass a file path instead of inline code:
       "kind": "function",
       "name": "sum",
       "startLine": 1,
-      "endLine": 4,
+      "endLine": 1,
       "timeComplexity": "O(n)",
-      "spaceComplexity": "O(1)",
+      "spaceComplexity": "O(n)",
       "confidence": "high",
       "uncertainNodes": []
     }
@@ -227,11 +226,9 @@ Optional tuning: `inputSizes`, `warmup`, `trials`, `timeoutMs`, `memoryMB`,
 how the measured result compares to `staticTimeComplexity`. The target code runs
 sandboxed and is never imported into the server process.
 
-> **Security note (v1):** `measure_complexity` executes the target function in a
-> `worker_thread` with configurable memory limits and a wall-clock timeout. This
-> provides runaway-process protection against accidental infinite loops and memory
-> exhaustion. It is **not** a hardened sandbox for hostile third-party code —
-> only point it at code you trust.
+> **Security note:** `measure_complexity` executes code you supply in a
+> `worker_thread` with a memory cap and a wall-clock timeout. Only point it at
+> code you trust; never pass untrusted user input as `targetPath`.
 
 ---
 
@@ -281,8 +278,7 @@ The package also ships a `complexity-analyzer` CLI for one-shot analysis of a fi
 complexity-analyzer analyze <path> [options]
 
 Options:
-  --json        Emit raw JSON to stdout; all diagnostic output goes to stderr
-  --measure     Run empirical runtime benchmarks on exported functions
+  --json        Emit raw JSON output
   --deep        Run LLM-powered deep analysis (requires ANTHROPIC_API_KEY)
   --lang <ext>  Override language detection (ts | js)
   -h, --help    Show this help
@@ -291,72 +287,14 @@ Options:
 **Examples**
 
 ```sh
-# Human-readable static analysis
+# Human-readable output
 complexity-analyzer analyze src/utils.ts
 
 # JSON output (pipe-friendly)
-complexity-analyzer analyze src/utils.ts --json | jq '.units[].timeComplexity'
+complexity-analyzer analyze src/utils.ts --json
 
-# Empirical benchmarking of exported functions
-complexity-analyzer analyze src/sort.ts --measure
-
-# LLM-enriched analysis
+# Deep analysis with LLM verification
 ANTHROPIC_API_KEY=sk-... complexity-analyzer analyze src/utils.ts --deep
-
-# All three combined
-ANTHROPIC_API_KEY=sk-... complexity-analyzer analyze src/sort.ts --measure --deep --json
-```
-
-### Empirical benchmarking (`--measure`)
-
-The `--measure` flag benchmarks each exported top-level function in the target file:
-
-- Runs in an out-of-process `worker_thread` with memory and time limits
-- Uses a default input generator: `(n) => [Array.from({ length: n }, (_, i) => i)]`
-- Sweeps input sizes `[10, 100, 1000, 10000, 100000]` by default
-- Fits a log-log regression to classify Big-O (O(1), O(log n), O(n), O(n log n), O(n²), O(n³))
-- Reports R² goodness-of-fit and reconciliation with the static verdict (`agree` / `diverge` / `inconclusive`)
-
-Functions that are not exported, or that are class methods, constructors, or arrow function
-expressions, are skipped automatically — these cannot be imported by name from the module system.
-
-**Security note:** The benchmarked code runs locally in your process. The `worker_thread` resource
-limits prevent runaway loops and memory exhaustion, but this is not a hardened sandbox for untrusted
-code.
-
-### LLM analysis (`--deep`)
-
-`--deep` is entirely optional. Without `ANTHROPIC_API_KEY`, the CLI falls back to static-only output
-and prints a notice. With a key, each function is sent to Claude for verification and optional
-alternative proposals. `--deep` and `--measure` compose — both active runs both passes in parallel.
-
-## LLM provider
-
-The LLM layer uses the Anthropic SDK (`@anthropic-ai/sdk`) by default. The underlying `LLMClient`
-interface is injectable for testing:
-
-```ts
-interface LLMClient {
-  complete(prompt: string): Promise<string>;
-}
-```
-
-Any provider that can produce text from a prompt can be wrapped with this interface.
-
-## Engine export
-
-The analysis engine is published as a separate entrypoint for programmatic use:
-
-```ts
-import { parseCode, analyzeUnit } from "complexity-analyzer-mcp/engine";
-
-const result = parseCode(source, "input.ts");
-if (result.success) {
-  for (const unit of result.units) {
-    const complexity = analyzeUnit(unit);
-    console.log(unit.name, complexity.timeComplexity, complexity.spaceComplexity);
-  }
-}
 ```
 
 ## Language support

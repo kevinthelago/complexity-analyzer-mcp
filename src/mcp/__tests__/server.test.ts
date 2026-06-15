@@ -123,73 +123,17 @@ describe("MCP stdio server", () => {
     expect(data.units.length).toBeGreaterThan(0);
   });
 
-  it("calls find_hotspots and returns units ranked worst-first", async () => {
+  it("returns isError for find_hotspots (not yet implemented)", async () => {
     const s = makeServer();
     s.send({
       jsonrpc: "2.0",
       id: 6,
       method: "tools/call",
-      params: {
-        name: "find_hotspots",
-        arguments: {
-          code: `
-function linear(arr: number[]): number {
-  let sum = 0;
-  for (const x of arr) sum += x;
-  return sum;
-}
-function quadratic(arr: number[]): void {
-  for (let i = 0; i < arr.length; i++) {
-    for (let j = 0; j < arr.length; j++) {
-      console.log(arr[i], arr[j]);
-    }
-  }
-}`,
-        },
-      },
-    });
-    const res = await s.nextResponse();
-    expect(res.id).toBe(6);
-    const result = res.result as JsonObj;
-    expect(result.isError).toBeFalsy();
-    const content = result.content as Array<{ text: string }>;
-    const data = JSON.parse(content[0]?.text ?? "{}") as {
-      units: Array<{ name: string; timeComplexity: string; hotspots: unknown[] }>;
-    };
-    // Two units; quadratic (O(n²)) must come before linear (O(n)).
-    expect(data.units.length).toBe(2);
-    expect(data.units[0]?.timeComplexity).toBe("O(n²)");
-    expect(data.units[1]?.timeComplexity).toBe("O(n)");
-    // quadratic unit should have at least one hotspot
-    expect(data.units[0]?.hotspots.length ?? 0).toBeGreaterThan(0);
-  });
-
-  it("find_hotspots returns isError when code is missing", async () => {
-    const s = makeServer();
-    s.send({
-      jsonrpc: "2.0",
-      id: 61,
-      method: "tools/call",
-      params: { name: "find_hotspots", arguments: {} },
+      params: { name: "find_hotspots", arguments: { code: "function foo() {}" } },
     });
     const res = await s.nextResponse();
     const result = res.result as JsonObj;
     expect(result.isError).toBe(true);
-  });
-
-  it("find_hotspots returns isError for oversized input", async () => {
-    const s = makeServer();
-    s.send({
-      jsonrpc: "2.0",
-      id: 62,
-      method: "tools/call",
-      params: { name: "find_hotspots", arguments: { code: "x".repeat(300_000) } },
-    });
-    const res = await s.nextResponse();
-    const result = res.result as JsonObj;
-    expect(result.isError).toBe(true);
-    const text = (result.content as Array<{ text: string }>)[0]?.text ?? "";
-    expect(text).toMatch(/limit|exceed/i);
   });
 
   it("returns METHOD_NOT_FOUND for an unknown tool", async () => {

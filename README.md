@@ -4,6 +4,18 @@ An MCP server that analyses TypeScript and JavaScript code for time and space co
 Three static tools are always available; a fourth (`deep_analyze`) uses an LLM for a
 second-opinion pass and requires `ANTHROPIC_API_KEY`.
 
+## Installation
+
+```bash
+# Global install (CLI + MCP server available as commands)
+npm install -g complexity-analyzer-mcp
+
+# Or run once without installing
+npx complexity-analyzer-mcp
+```
+
+Requires Node.js ≥ 22.
+
 ## Quick start
 
 ### Wire the server into your MCP host

@@ -9,7 +9,11 @@
   },
   "main": "./dist/mcp/index.js",
   "bin": {
-    "complexity-analyzer": "./dist/cli/index.js"
+    "complexity-analyzer": "./dist/cli/index.js",
+    "complexity-mcp": "./dist/mcp/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "exports": {
     ".": "./dist/mcp/index.js",

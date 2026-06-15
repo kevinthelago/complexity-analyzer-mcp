@@ -22,7 +22,9 @@ function rpcError(id: string | number | null, code: number, message: string): Js
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
-function handleMessage(req: JsonRpcRequest): JsonRpcSuccessResponse | JsonRpcErrorResponse | null {
+async function handleMessage(
+  req: JsonRpcRequest,
+): Promise<JsonRpcSuccessResponse | JsonRpcErrorResponse | null> {
   const id = req.id;
   const params = req.params;
 
@@ -79,7 +81,7 @@ function handleMessage(req: JsonRpcRequest): JsonRpcSuccessResponse | JsonRpcErr
         typeof rawArgs === "object" && rawArgs !== null ? (rawArgs as Record<string, unknown>) : {};
 
       try {
-        const result = tool.execute(toolArgs);
+        const result = await tool.execute(toolArgs);
         return ok(id, result);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -98,36 +100,38 @@ export function createMcpServer(input: Readable, output: Writable): void {
   const rl = createInterface({ input, terminal: false });
 
   rl.on("line", (line: string) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
+    void (async () => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      const response = rpcError(null, PARSE_ERROR, "Parse error: invalid JSON");
-      output.write(`${JSON.stringify(response)}\n`);
-      return;
-    }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        const response = rpcError(null, PARSE_ERROR, "Parse error: invalid JSON");
+        output.write(`${JSON.stringify(response)}\n`);
+        return;
+      }
 
-    if (
-      typeof parsed !== "object" ||
-      parsed === null ||
-      (parsed as Record<string, unknown>).jsonrpc !== "2.0" ||
-      typeof (parsed as Record<string, unknown>).method !== "string"
-    ) {
-      const rawId = (parsed as Record<string, unknown> | null)?.id;
-      const id = typeof rawId === "string" || typeof rawId === "number" ? rawId : null;
-      const response = rpcError(id, INVALID_REQUEST, "Invalid Request");
-      output.write(`${JSON.stringify(response)}\n`);
-      return;
-    }
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        (parsed as Record<string, unknown>).jsonrpc !== "2.0" ||
+        typeof (parsed as Record<string, unknown>).method !== "string"
+      ) {
+        const rawId = (parsed as Record<string, unknown> | null)?.id;
+        const id = typeof rawId === "string" || typeof rawId === "number" ? rawId : null;
+        const response = rpcError(id, INVALID_REQUEST, "Invalid Request");
+        output.write(`${JSON.stringify(response)}\n`);
+        return;
+      }
 
-    const req = parsed as JsonRpcRequest;
-    const response = handleMessage(req);
-    if (response !== null) {
-      output.write(`${JSON.stringify(response)}\n`);
-    }
+      const req = parsed as JsonRpcRequest;
+      const response = await handleMessage(req);
+      if (response !== null) {
+        output.write(`${JSON.stringify(response)}\n`);
+      }
+    })();
   });
 }
 

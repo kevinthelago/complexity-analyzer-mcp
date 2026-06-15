@@ -12,7 +12,7 @@ export interface McpTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  execute: (args: Record<string, unknown>) => McpToolCallResult;
+  execute: (args: Record<string, unknown>) => McpToolCallResult | Promise<McpToolCallResult>;
 }
 
 // JSON-RPC 2.0 types (subset used by the MCP stdio transport)

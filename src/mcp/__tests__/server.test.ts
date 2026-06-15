@@ -89,17 +89,18 @@ describe("MCP stdio server", () => {
     expect(res.result).toEqual({});
   });
 
-  it("lists three tools via tools/list", async () => {
+  it("lists four tools via tools/list", async () => {
     const s = makeServer();
     s.send({ jsonrpc: "2.0", id: 4, method: "tools/list" });
     const res = await s.nextResponse();
     const result = res.result as JsonObj;
     const tools = result.tools as Array<{ name: string }>;
-    expect(tools.length).toBe(3);
+    expect(tools.length).toBe(4);
     const names = tools.map((t) => t.name).sort();
     expect(names).toContain("analyze_complexity");
     expect(names).toContain("suggest_optimizations");
     expect(names).toContain("find_hotspots");
+    expect(names).toContain("deep_analyze");
   });
 
   it("calls analyze_complexity and returns unit data", async () => {

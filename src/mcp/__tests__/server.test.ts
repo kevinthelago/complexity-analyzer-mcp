@@ -23,14 +23,15 @@ afterEach(async () => {
 });
 
 describe("MCP server — tool discovery", () => {
-  it("lists all four registered tools", async () => {
+  it("lists all five registered tools", async () => {
     const { tools } = await ctx.client.listTools();
     const names = tools.map((t) => t.name).sort();
     expect(names).toContain("analyze_complexity");
     expect(names).toContain("find_hotspots");
     expect(names).toContain("suggest_optimizations");
     expect(names).toContain("deep_analyze");
-    expect(tools.length).toBe(4);
+    expect(names).toContain("measure_complexity");
+    expect(tools.length).toBe(5);
   });
 
   it("each tool has a description and inputSchema", async () => {

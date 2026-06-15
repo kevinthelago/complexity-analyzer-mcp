@@ -1,8 +1,8 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { measure } from "../../runtime/index.js";
+import type { ToolArgs, ToolDefinition } from "../types.js";
 
-const inputSchema = {
+const inputShape = {
   targetPath: z.string().describe("Absolute path to the JS/TS file exporting the target function"),
   exportName: z.string().describe("Name of the exported function to benchmark"),
   generatorCode: z
@@ -44,41 +44,37 @@ const inputSchema = {
     .describe("Memory cap for the sandbox worker in MB (default: 256)"),
 };
 
-/**
- * Register the measure_complexity tool with the MCP server.
- *
- * The tool runs the target function in an isolated worker_thread sandbox across
- * a sweep of input sizes, fits a Big-O curve, and returns an EmpiricalResult.
- * It is entirely opt-in and never executes code unless explicitly called.
- */
-export function register(server: McpServer): void {
-  server.tool(
-    "measure_complexity",
-    "Empirically measure the runtime Big-O of a function by benchmarking it across growing input sizes. " +
-      "Returns an empirical Big-O, goodness-of-fit (R²), confidence, and reconciliation against the static verdict. " +
-      "The target runs in an isolated worker_thread with memory and time limits. " +
-      "Requires a generator function (n) => args to produce inputs of size n.",
-    inputSchema,
-    async (input) => {
-      // exactOptionalPropertyTypes: Zod infers optional fields as `T | undefined`
-      // (property present with undefined value), but MeasureOptions uses `T?`
-      // (property absent). Strip undefined before passing.
-      const outcome = await measure({
-        targetPath: input.targetPath,
-        exportName: input.exportName,
-        generatorCode: input.generatorCode,
-        ...(input.staticTimeComplexity !== undefined
-          ? { staticTimeComplexity: input.staticTimeComplexity }
-          : {}),
-        ...(input.inputSizes !== undefined ? { inputSizes: input.inputSizes } : {}),
-        ...(input.warmup !== undefined ? { warmup: input.warmup } : {}),
-        ...(input.trials !== undefined ? { trials: input.trials } : {}),
-        ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
-        ...(input.memoryMB !== undefined ? { memoryMB: input.memoryMB } : {}),
-      });
-      return {
-        content: [{ type: "text", text: JSON.stringify(outcome, null, 2) }],
-      };
-    },
-  );
+async function execute(input: ToolArgs<typeof inputShape>) {
+  // exactOptionalPropertyTypes: Zod infers optional fields as `T | undefined`
+  // (property present with undefined value), but MeasureOptions uses `T?`
+  // (property absent). Strip undefined before passing.
+  const outcome = await measure({
+    targetPath: input.targetPath,
+    exportName: input.exportName,
+    generatorCode: input.generatorCode,
+    ...(input.staticTimeComplexity !== undefined
+      ? { staticTimeComplexity: input.staticTimeComplexity }
+      : {}),
+    ...(input.inputSizes !== undefined ? { inputSizes: input.inputSizes } : {}),
+    ...(input.warmup !== undefined ? { warmup: input.warmup } : {}),
+    ...(input.trials !== undefined ? { trials: input.trials } : {}),
+    ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+    ...(input.memoryMB !== undefined ? { memoryMB: input.memoryMB } : {}),
+  });
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(outcome, null, 2) }],
+  };
 }
+
+const tool: ToolDefinition<typeof inputShape> = {
+  name: "measure_complexity",
+  description:
+    "Empirically measure the runtime Big-O of a function by benchmarking it across growing input sizes. " +
+    "Returns an empirical Big-O, goodness-of-fit (R²), confidence, and reconciliation against the static verdict. " +
+    "The target runs in an isolated worker_thread with memory and time limits — never in the server process. " +
+    "Requires a generator function (n) => args to produce inputs of size n.",
+  inputShape,
+  execute,
+};
+
+export default tool;

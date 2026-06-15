@@ -51,8 +51,11 @@ Or, if you have the package installed globally or locally:
 
 | Variable | Required | Description |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Only for `deep_analyze` | Anthropic API key used by the LLM pass |
-| `COMPLEXITY_MODEL` | No | Override the Anthropic model (default: `claude-haiku-4-5-20251001`) |
+| `ANTHROPIC_API_KEY` | Only for `deep_analyze` | Anthropic API key — checked first |
+| `COMPLEXITY_MODEL` | No | Override the Anthropic model (default: `claude-sonnet-4-6`) |
+| `OPENAI_API_KEY` | Only for `deep_analyze` | OpenAI-compatible API key — used when `ANTHROPIC_API_KEY` is absent |
+| `COMPLEXITY_OPENAI_MODEL` | No | Model name for the OpenAI-compatible endpoint (default: `gpt-4o-mini`) |
+| `OPENAI_BASE_URL` | No | Base URL for OpenAI-compatible servers, e.g. Ollama or LM Studio (default: `https://api.openai.com`) |
 
 ## MCP tools
 

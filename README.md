@@ -58,6 +58,8 @@ Or, if you have the package installed globally or locally:
 | `COMPLEXITY_OPENAI_MODEL` | No | Model name for the OpenAI-compatible endpoint (default: `gpt-4o-mini`) |
 | `OPENAI_BASE_URL` | No | Base URL for OpenAI-compatible servers, e.g. Ollama or LM Studio (default: `https://api.openai.com`) |
 
+The LLM layer is fully optional — all four static tools work without any API key.
+
 ## MCP tools
 
 ### `analyze_complexity`
@@ -273,8 +275,8 @@ more-efficient alternative implementation.
 ]
 ```
 
-When `ANTHROPIC_API_KEY` is absent, `llmStatus` is `"llm_unavailable"` and the LLM fields
-are omitted — static results are always returned.
+When `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) is absent, `llmStatus` is `"llm_unavailable"` and
+the LLM fields are omitted — static results are always returned.
 
 ## CLI
 
@@ -284,11 +286,13 @@ The package also ships a `complexity-analyzer` CLI for one-shot analysis of a fi
 complexity-analyzer analyze <path> [options]
 
 Options:
-  --json        Emit raw JSON to stdout; all diagnostic output goes to stderr
-  --measure     Run empirical runtime benchmarks on exported functions
-  --deep        Run LLM-powered deep analysis (requires ANTHROPIC_API_KEY)
-  --lang <ext>  Override language detection (ts | js)
-  -h, --help    Show this help
+  --json             Emit raw JSON to stdout; all diagnostic output goes to stderr
+  --measure          Run empirical runtime benchmarks on exported functions
+  --generator <code> JS expression (n) => args for the empirical sweep
+                     Default: (n) => [Array.from({length: n}, (_, i) => i)]
+  --deep             Run LLM-powered deep analysis (requires ANTHROPIC_API_KEY or OPENAI_API_KEY)
+  --lang <ext>       Override language detection (ts | js)
+  -h, --help         Show this help
 ```
 
 **Examples**
@@ -305,6 +309,9 @@ complexity-analyzer analyze src/sort.ts --measure
 
 # LLM-enriched analysis
 ANTHROPIC_API_KEY=sk-... complexity-analyzer analyze src/utils.ts --deep
+
+# Custom input generator (for functions that take a string of length n)
+complexity-analyzer analyze src/utils.ts --measure --generator "(n) => [Array.from({length: n}, () => 'x').join('')]"
 
 # All three combined
 ANTHROPIC_API_KEY=sk-... complexity-analyzer analyze src/sort.ts --measure --deep --json
@@ -329,14 +336,15 @@ code.
 
 ### LLM analysis (`--deep`)
 
-`--deep` is entirely optional. Without `ANTHROPIC_API_KEY`, the CLI falls back to static-only output
-and prints a notice. With a key, each function is sent to Claude for verification and optional
-alternative proposals. `--deep` and `--measure` compose — both active runs both passes in parallel.
+`--deep` is entirely optional. Without `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, the CLI falls back to static-only output
+and prints a notice. With a key, each function is sent to the LLM for verification and optional
+alternative proposals. `--deep` and `--measure` compose — both active runs both passes in sequence.
 
 ## LLM provider
 
-The LLM layer uses the Anthropic SDK (`@anthropic-ai/sdk`) by default. The underlying `LLMClient`
-interface is injectable for testing:
+The LLM layer uses the Anthropic SDK (`@anthropic-ai/sdk`) by default and falls back to any
+OpenAI-compatible endpoint when `OPENAI_API_KEY` is set. The underlying `LLMClient` interface is
+injectable for testing:
 
 ```ts
 interface LLMClient {
@@ -360,7 +368,6 @@ if (result.success) {
     console.log(unit.name, complexity.timeComplexity, complexity.spaceComplexity);
   }
 }
-```
 
 ## Language support
 

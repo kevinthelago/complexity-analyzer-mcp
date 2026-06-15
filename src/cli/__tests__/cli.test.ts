@@ -1,9 +1,9 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { LLMClient } from "../../llm/index.js";
-import { measure } from "../../runtime/index.js";
+import type { MeasureOutcome } from "../../runtime/index.js";
 import {
   type AnalysisOutput,
   formatHuman,
@@ -11,12 +11,24 @@ import {
   runAnalysis,
   runCli,
   runDeepAnalysis,
-  runMeasuredAnalysis,
+  runMeasureAnalysis,
 } from "../index.js";
 
-vi.mock("../../runtime/index.js", () => ({
-  measure: vi.fn(),
-}));
+// ── Mock helpers ─────────────────────────────────────────────────────────────
+
+function mockMeasureOk(bigO = "O(n)"): () => Promise<MeasureOutcome> {
+  return vi.fn().mockResolvedValue({
+    status: "ok",
+    empirical: { bigO, rSquared: 0.997, confidence: "high", reconciliation: "agree" },
+  } satisfies MeasureOutcome);
+}
+
+function mockMeasureError(msg = "Export 'sum' is not a function"): () => Promise<MeasureOutcome> {
+  return vi.fn().mockResolvedValue({
+    status: "error",
+    errorMessage: msg,
+  } satisfies MeasureOutcome);
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,12 +82,6 @@ beforeAll(() => {
 
 afterAll(() => {
   if (existsSync(tmpDir)) rmSync(tmpDir, { recursive: true, force: true });
-});
-
-// Reset measure mock before each test so stale implementations don't bleed across.
-// Default: return a benign skipped outcome so tests that don't care about measurement work.
-beforeEach(() => {
-  vi.mocked(measure).mockResolvedValue({ status: "error", errorMessage: "not measured" });
 });
 
 function writeTmp(name: string, content: string): string {
@@ -485,146 +491,97 @@ describe("runCli", () => {
     }
   });
 
-  it("--measure includes measureEnabled flag in --json output", async () => {
-    vi.mocked(measure).mockResolvedValue({
-      status: "ok",
-      empirical: { bigO: "O(n)", rSquared: 0.98, confidence: "high", reconciliation: "agree" },
-    });
-    const p = writeTmp("measure-json.ts", SIMPLE_TS);
-    const r = await runCli({ path: p, json: true, measure: true });
+  it("--measure with mocked ok measurement attaches empirical data", async () => {
+    const p = writeTmp("measure.ts", SIMPLE_TS);
+    const r = await runCli({ path: p, json: true, measure: true }, mockMeasureOk());
     expect(r.exitCode).toBe(0);
     const data = JSON.parse(r.output);
     expect(data.measureEnabled).toBe(true);
-    expect(data.units[0]).toHaveProperty("measureStatus", "ok");
+    expect(data.units[0].measureStatus).toBe("ok");
+    expect(data.units[0].empiricalBigO).toBe("O(n)");
+    expect(data.units[0].empiricalR2).toBeCloseTo(0.997);
   });
 
-  it("--measure shows empirical result in human output", async () => {
-    vi.mocked(measure).mockResolvedValue({
-      status: "ok",
-      empirical: { bigO: "O(n)", rSquared: 0.99, confidence: "high", reconciliation: "agree" },
-    });
-    const p = writeTmp("measure-human.ts", SIMPLE_TS);
-    const r = await runCli({ path: p, json: false, measure: true });
+  it("--measure with error result includes measureStatus error", async () => {
+    const p = writeTmp("measure-err.ts", SIMPLE_TS);
+    const r = await runCli({ path: p, json: true, measure: true }, mockMeasureError());
     expect(r.exitCode).toBe(0);
-    expect(r.output).toContain("Empirical:");
+    const data = JSON.parse(r.output);
+    expect(data.units[0].measureStatus).toBe("error");
+    expect(typeof data.units[0].measureError).toBe("string");
+  });
+
+  it("--measure human output shows empirical line for ok measurement", async () => {
+    const p = writeTmp("measure-human.ts", SIMPLE_TS);
+    const r = await runCli({ path: p, json: false, measure: true }, mockMeasureOk());
+    expect(r.exitCode).toBe(0);
+    expect(r.output).toContain("Empirical");
     expect(r.output).toContain("O(n)");
   });
 
-  it("--measure skips non-exported functions gracefully", async () => {
-    vi.mocked(measure).mockResolvedValue({
-      status: "error",
-      errorMessage: "Export 'sum' is not a function in /tmp/foo.mjs",
-    });
-    const p = writeTmp("measure-skip.ts", SIMPLE_TS);
-    const r = await runCli({ path: p, json: false, measure: true });
-    expect(r.exitCode).toBe(0);
-    expect(r.output).toContain("skipped");
-    expect(r.output).toContain("not exported");
-  });
-
-  it("--measure + --deep without API key falls back to static + empirical", async () => {
-    vi.mocked(measure).mockResolvedValue({
-      status: "ok",
-      empirical: { bigO: "O(n)", rSquared: 0.97, confidence: "high", reconciliation: "agree" },
-    });
-    const origKey = process.env.ANTHROPIC_API_KEY;
-    // biome-ignore lint/performance/noDelete: process.env requires delete to truly unset
-    delete process.env.ANTHROPIC_API_KEY;
-    try {
-      const p = writeTmp("measure-deep.ts", SIMPLE_TS);
-      const r = await runCli({ path: p, json: false, deep: true, measure: true });
-      expect(r.exitCode).toBe(0);
-      expect(r.output).toContain("ANTHROPIC_API_KEY");
-      expect(r.output).toContain("Empirical:");
-    } finally {
-      if (origKey !== undefined) process.env.ANTHROPIC_API_KEY = origKey;
-    }
+  it("--measure composes with --json", async () => {
+    const p = writeTmp("measure-json.ts", SIMPLE_TS);
+    const r = await runCli({ path: p, json: true, deep: false, measure: true }, mockMeasureOk());
+    const data = JSON.parse(r.output);
+    expect(data.measureEnabled).toBe(true);
+    expect(data.units[0]).toHaveProperty("measureStatus");
   });
 });
 
-// ── parseCliArgs --measure ────────────────────────────────────────────────────
+// ── runMeasureAnalysis ────────────────────────────────────────────────────────
 
-describe("parseCliArgs --measure", () => {
+describe("runMeasureAnalysis", () => {
+  it("attaches empirical data from mock measure", async () => {
+    const p = writeTmp("msrc.ts", SIMPLE_TS);
+    const r = await runMeasureAnalysis(SIMPLE_TS, p, undefined, undefined, mockMeasureOk("O(n)"));
+    expect(r.units[0]?.measureStatus).toBe("ok");
+    expect(r.units[0]?.empiricalBigO).toBe("O(n)");
+    expect(r.units[0]?.empiricalR2).toBeCloseTo(0.997);
+    expect(r.units[0]?.empiricalReconciliation).toBe("agree");
+  });
+
+  it("attaches error status when measure fails", async () => {
+    const p = writeTmp("msrc-err.ts", SIMPLE_TS);
+    const r = await runMeasureAnalysis(SIMPLE_TS, p, undefined, undefined, mockMeasureError());
+    expect(r.units[0]?.measureStatus).toBe("error");
+    expect(r.units[0]?.measureError).toBeDefined();
+  });
+
+  it("returns empty units for source with no functions", async () => {
+    const p = writeTmp("msrc-nounit.ts", NO_UNITS_SRC);
+    const r = await runMeasureAnalysis(NO_UNITS_SRC, p, undefined, undefined, mockMeasureOk());
+    expect(r.units).toHaveLength(0);
+  });
+});
+
+// ── parseCliArgs --measure / --generator ─────────────────────────────────────
+
+describe("parseCliArgs — --measure and --generator", () => {
   it("parses --measure flag", () => {
     const r = parseCliArgs(["node", "cli", "analyze", "foo.ts", "--measure"]);
-    expect(r.error).toBeUndefined();
     expect(r.opts.measure).toBe(true);
   });
 
-  it("composes --measure with --json", () => {
-    const r = parseCliArgs(["node", "cli", "analyze", "foo.ts", "--measure", "--json"]);
-    expect(r.opts.measure).toBe(true);
-    expect(r.opts.json).toBe(true);
+  it("parses --generator value", () => {
+    const gen = "(n) => [n]";
+    const r = parseCliArgs(["node", "cli", "analyze", "foo.ts", "--measure", "--generator", gen]);
+    expect(r.opts.generator).toBe(gen);
   });
 
-  it("composes --measure with --deep", () => {
+  it("returns error when --generator has no value", () => {
+    const r = parseCliArgs(["node", "cli", "analyze", "foo.ts", "--generator"]);
+    expect(r.error).toContain("--generator requires a value");
+  });
+
+  it("--measure and --deep can be combined", () => {
     const r = parseCliArgs(["node", "cli", "analyze", "foo.ts", "--measure", "--deep"]);
     expect(r.opts.measure).toBe(true);
     expect(r.opts.deep).toBe(true);
   });
-});
 
-// ── runMeasuredAnalysis ───────────────────────────────────────────────────────
-
-describe("runMeasuredAnalysis", () => {
-  it("returns empirical data for a function when measure succeeds", async () => {
-    vi.mocked(measure).mockResolvedValue({
-      status: "ok",
-      empirical: { bigO: "O(n)", rSquared: 0.99, confidence: "high", reconciliation: "agree" },
-    });
-    const p = writeTmp("measured.ts", SIMPLE_TS);
-    const source = readFileSync(p, "utf-8");
-    const r = await runMeasuredAnalysis(source, p);
-    expect(r.units[0]?.measureStatus).toBe("ok");
-    expect(r.units[0]?.empirical?.bigO).toBe("O(n)");
-  });
-
-  it("marks unit as skipped when function is not exported", async () => {
-    vi.mocked(measure).mockResolvedValue({
-      status: "error",
-      errorMessage: "Export 'sum' is not a function in /tmp/foo.mjs",
-    });
-    const p = writeTmp("not-exported.ts", SIMPLE_TS);
-    const source = readFileSync(p, "utf-8");
-    const r = await runMeasuredAnalysis(source, p);
-    expect(r.units[0]?.measureStatus).toBe("skipped");
-    expect(r.units[0]?.measureSkipReason).toContain("not exported");
-  });
-
-  it("marks unit as error on measurement failure", async () => {
-    vi.mocked(measure).mockResolvedValue({
-      status: "error",
-      errorMessage: "Worker crashed",
-    });
-    const p = writeTmp("error.ts", SIMPLE_TS);
-    const source = readFileSync(p, "utf-8");
-    const r = await runMeasuredAnalysis(source, p);
-    expect(r.units[0]?.measureStatus).toBe("error");
-  });
-
-  it("skips non-function kinds (methods, arrows) without calling measure", async () => {
-    const CLASS_SRC = `
-      class Foo {
-        bar(arr: number[]): void {
-          for (const x of arr) console.log(x);
-        }
-      }
-    `;
-    vi.mocked(measure).mockClear();
-    const p = writeTmp("class-method.ts", CLASS_SRC);
-    const source = readFileSync(p, "utf-8");
-    const r = await runMeasuredAnalysis(source, p);
-    // Methods are skipped without calling measure
-    const method = r.units.find((u) => u.kind === "method");
-    expect(method?.measureStatus).toBe("skipped");
-    expect(vi.mocked(measure)).not.toHaveBeenCalled();
-  });
-
-  it("returns parse error for broken source", async () => {
-    const p = writeTmp("broken2.ts", BROKEN_SRC);
-    const source = readFileSync(p, "utf-8");
-    const r = await runMeasuredAnalysis(source, p);
-    // ts-morph error-recovers, so this will have units not a parseError in practice
-    expect(r).toHaveProperty("units");
+  it("--measure and --json can be combined", () => {
+    const r = parseCliArgs(["node", "cli", "analyze", "foo.ts", "--measure", "--json"]);
+    expect(r.opts.measure).toBe(true);
+    expect(r.opts.json).toBe(true);
   });
 });

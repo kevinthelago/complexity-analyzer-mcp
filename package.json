@@ -31,6 +31,9 @@
     "test:coverage": "vitest run --coverage",
     "ci": "pnpm check && pnpm typecheck && pnpm test"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
     "@modelcontextprotocol/sdk": "^1.12.0",

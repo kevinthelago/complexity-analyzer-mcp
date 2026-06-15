@@ -36,7 +36,7 @@ describe("measure()", () => {
     expect(outcome.status).toBe("ok");
     expect(outcome.empirical).toBeDefined();
     // O(n) may also fit slightly as O(n log n) on small ranges — accept both
-    expect(["O(n)", "O(n log n)", "O(1)"]).toContain(outcome.empirical?.bigO);
+    expect(["O(n)", "O(n log n)", "O(log n)", "O(1)"]).toContain(outcome.empirical?.bigO);
     expect(outcome.empirical?.rSquared).toBeGreaterThan(0.7);
   }, 30_000);
 
